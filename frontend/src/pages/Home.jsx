@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Play, Edit, Plus, Settings, AlertCircle, CheckCircle2 } from "lucide-react";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { API_BASE, fetchJson } from "../utils/api";
 
 export default function Home() {
@@ -67,9 +68,12 @@ export default function Home() {
         <div className="home-container">
             <div className="home-header">
                 <h1 className="logo-title">Scenario Pro</h1>
-                <Link to="/editor" className="btn primary">
-                    <Plus size={16} /> New Rule
-                </Link>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <ThemeToggle />
+                    <Link to="/editor" className="btn primary">
+                        <Plus size={16} /> New Rule
+                    </Link>
+                </div>
             </div>
 
             <div className="rules-grid">

@@ -14,6 +14,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, Save, Play, Plus, Trash2, RefreshCw } from "lucide-react";
 
 import { NodeEditor } from "../components/NodeEditor";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { shouldMarkDirtyFromEdgeChanges, shouldMarkDirtyFromNodeChanges, reselectRuleAfterReload } from "../editor/graphState";
 import { nodeTypes, updateNodeLabel } from "../editor/nodeMeta";
 import { API_BASE, fetchJson } from "../utils/api";
@@ -89,7 +90,8 @@ function Sidebar({ rules, onCreate, onSelect, onReload, selectedId }) {
                 <Link to="/" className="btn-icon">
                     <ArrowLeft size={20} />
                 </Link>
-                <div className="sidebar-title">Rules</div>
+                <div className="sidebar-title" style={{ flex: 1 }}>Rules</div>
+                <ThemeToggle className="btn-icon-sm" />
             </div>
 
             <div className="sidebar-section">
