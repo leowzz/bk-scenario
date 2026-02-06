@@ -392,8 +392,10 @@ export default function Editor() {
             });
             setIsGraphDirty(false);
             clearSavedHintSoon();
+            return true;
         } catch (error) {
             setGraphSaveError(error.message || "Save failed");
+            return false;
         } finally {
             setIsSavingGraph(false);
         }
@@ -401,6 +403,16 @@ export default function Editor() {
 
     async function runRule() {
         if (!currentRule.id || isRunning) return;
+
+        // Auto-save if dirty
+        if (isGraphDirty) {
+            const success = await saveGraph();
+            if (!success) {
+                setRunError("Auto-save failed, aborting run");
+                return;
+            }
+        }
+
         const globalsMap = globals.reduce((acc, item) => {
             acc[item.key] = item.value;
             return acc;
@@ -536,6 +548,16 @@ export default function Editor() {
 
     const saveDisabled = isSavingGraph || !currentRule.id || !isGraphDirty;
 
+    function deleteNode(nodeId) {
+        if (!nodeId) return;
+        setNodes((nds) => nds.filter((n) => n.id !== nodeId));
+        setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
+        setSelectedNodeId(null);
+        setIsGraphDirty(true);
+        setGraphSaveError("");
+        setGraphSavedHint(false);
+    }
+
     return (
         <div className="app editor-layout">
             <Sidebar
@@ -593,38 +615,43 @@ export default function Editor() {
                         <h3>Select or create a rule to start editing</h3>
                     </div>
                 )}
+
+                {selectedNode && (
+                    <NodeEditor
+                        node={selectedNode}
+                        onChange={(meta) => {
+                            if (!selectedNode) return;
+                            setNodes((nds) =>
+                                nds.map((node) => {
+                                    if (node.id !== selectedNode.id) return node;
+                                    const nextNode = {
+                                        ...node,
+                                        data: {
+                                            ...node.data,
+                                            meta,
+                                        },
+                                        style: {
+                                            ...node.style,
+                                            border: `2px solid ${nodeTypes[meta.type]?.color || "#444"}`,
+                                        },
+                                    };
+                                    return { ...nextNode, data: { ...nextNode.data, label: updateNodeLabel(nextNode) } };
+                                })
+                            );
+                            setIsGraphDirty(true);
+                            setGraphSaveError("");
+                            setGraphSavedHint(false);
+                            setNodeTestState({ isLoading: false, error: "", result: null });
+                        }}
+                        onTest={testCurrentNode}
+                        nodeTestState={nodeTestState}
+                        onClose={() => setSelectedNodeId(null)}
+                        onDelete={deleteNode}
+                    />
+                )}
             </div>
 
             <div className="right-panel">
-                <NodeEditor
-                    node={selectedNode}
-                    onChange={(meta) => {
-                        if (!selectedNode) return;
-                        setNodes((nds) =>
-                            nds.map((node) => {
-                                if (node.id !== selectedNode.id) return node;
-                                const nextNode = {
-                                    ...node,
-                                    data: {
-                                        ...node.data,
-                                        meta,
-                                    },
-                                    style: {
-                                        ...node.style,
-                                        border: `2px solid ${nodeTypes[meta.type]?.color || "#444"}`,
-                                    },
-                                };
-                                return { ...nextNode, data: { ...nextNode.data, label: updateNodeLabel(nextNode) } };
-                            })
-                        );
-                        setIsGraphDirty(true);
-                        setGraphSaveError("");
-                        setGraphSavedHint(false);
-                        setNodeTestState({ isLoading: false, error: "", result: null });
-                    }}
-                    onTest={testCurrentNode}
-                    nodeTestState={nodeTestState}
-                />
                 <GlobalsPanel globals={globals} onSave={saveGlobal} onDelete={deleteGlobal} />
                 <ExecutionPanel
                     ruleId={currentRule.id}
