@@ -56,6 +56,16 @@ body { margin: 0; font-family: "IBM Plex Sans", system-ui, sans-serif; backgroun
   border: 1px solid #1f2632;
 }
 
+.toolbar-status {
+  position: absolute;
+  top: 72px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .btn {
   background: #222a36;
   color: var(--text);
@@ -69,6 +79,10 @@ body { margin: 0; font-family: "IBM Plex Sans", system-ui, sans-serif; backgroun
 .btn.ghost { background: transparent; border-color: #2a3342; }
 .btn:hover { opacity: 0.9; }
 .btn.ghost { color: var(--muted); }
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 .input {
   width: 100%;
@@ -122,6 +136,24 @@ body { margin: 0; font-family: "IBM Plex Sans", system-ui, sans-serif; backgroun
 .exec-step-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
 .exec-step-body { font-size: 12px; white-space: pre-wrap; }
 .exec-step-output { font-size: 11px; color: #7cded8; margin-top: 6px; }
+
+.status-error {
+  color: #ff8f89;
+  font-size: 12px;
+  background: rgba(128, 32, 32, 0.22);
+  border: 1px solid rgba(255, 120, 120, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.status-note {
+  color: #a9c4ff;
+  font-size: 12px;
+  background: rgba(48, 78, 151, 0.22);
+  border: 1px solid rgba(109, 152, 255, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+}
 
 @media (max-width: 1024px) {
   .app { grid-template-columns: 1fr; }

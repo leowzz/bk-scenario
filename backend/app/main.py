@@ -27,6 +27,7 @@ from .models import (
     RuleUpdate,
 )
 from .storage import Storage
+from .template import TemplateRenderer
 
 
 app = FastAPI(title="DB Scenario Pro", version="0.2.0")
@@ -326,6 +327,54 @@ async def execute_rule(payload: dict[str, Any]):
         storage.close()
 
 
+@app.post("/api/node-test")
+async def test_node(payload: dict[str, Any]):
+    node = payload.get("node")
+    variables = payload.get("variables", {})
+
+    if not isinstance(node, dict):
+        raise HTTPException(status_code=422, detail="node must be object")
+    if not isinstance(variables, dict):
+        raise HTTPException(status_code=422, detail="variables must be object")
+
+    action_type = node.get("type")
+    config = node.get("config") or {}
+    if not isinstance(config, dict):
+        raise HTTPException(status_code=422, detail="node.config must be object")
+
+    if action_type == "sql":
+        rendered = TemplateRenderer.render_sql(str(config.get("sql", "")), variables)
+        return {
+            "status": "completed",
+            "action_type": action_type,
+            "content": rendered,
+            "output": rendered,
+        }
+    if action_type == "log":
+        rendered = TemplateRenderer.render(str(config.get("log_message", "")), variables)
+        return {
+            "status": "completed",
+            "action_type": action_type,
+            "content": rendered,
+            "output": rendered,
+        }
+    if action_type == "store":
+        key = TemplateRenderer.render(str(config.get("store_key", "")), variables)
+        value = TemplateRenderer.render(str(config.get("store_value", "")), variables)
+        return {
+            "status": "completed",
+            "action_type": action_type,
+            "content": f"{key}={value}",
+            "output": {"key": key, "value": value},
+        }
+
+    return {
+        "status": "failed",
+        "action_type": str(action_type),
+        "error": f"unsupported node type: {action_type}",
+    }
+
+
 @app.get("/api/projects/{project_id}/executions/{rule_id}")
 async def list_executions(project_id: int, rule_id: int):
     storage = Storage()
@@ -340,6 +389,7 @@ async def list_executions(project_id: int, rule_id: int):
                 "completed_at": r.completed_at,
                 "status": r.status,
                 "variables": json.loads(r.variables or "{}"),
+                "result_summary": r.result_summary,
             }
             for r in records
         ]
@@ -356,6 +406,7 @@ async def get_execution(execution_id: str):
             raise HTTPException(status_code=404, detail="Execution not found")
         steps = storage.list_steps(execution_id)
         stored = storage.list_stored_data(execution_id)
+        execution_error = record.result_summary if record.status == "failed" else None
         return {
             "execution_id": record.execution_id,
             "project_id": record.project_id,
@@ -364,6 +415,8 @@ async def get_execution(execution_id: str):
             "completed_at": record.completed_at,
             "status": record.status,
             "variables": json.loads(record.variables or "{}"),
+            "result_summary": record.result_summary,
+            "error": execution_error,
             "steps": [
                 {
                     "node_id": s.node_id,
@@ -525,6 +578,7 @@ async def compat_list_executions(rule_id: int):
                 "completed_at": r.completed_at,
                 "status": r.status,
                 "variables": json.loads(r.variables or "{}"),
+                "result_summary": r.result_summary,
             }
             for r in records
         ]

@@ -1,7 +1,7 @@
-from __future__ import annotations
+from typing import List, Optional
 
 from sqlalchemy import UniqueConstraint
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, Relationship, SQLModel
 
 
 class ProjectModel(SQLModel, table=True):
@@ -12,6 +12,27 @@ class ProjectModel(SQLModel, table=True):
     description: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    rules: List["RuleModel"] = Relationship(
+        back_populates="project",
+        sa_relationship_kwargs={
+            "primaryjoin": "ProjectModel.id == foreign(RuleModel.project_id)",
+            "cascade": "all, delete-orphan",
+        },
+    )
+    globals: List["GlobalVarModel"] = Relationship(
+        back_populates="project",
+        sa_relationship_kwargs={
+            "primaryjoin": "ProjectModel.id == foreign(GlobalVarModel.project_id)",
+            "cascade": "all, delete-orphan",
+        },
+    )
+    executions: List["ExecutionModel"] = Relationship(
+        back_populates="project",
+        sa_relationship_kwargs={
+            "primaryjoin": "ProjectModel.id == foreign(ExecutionModel.project_id)",
+            "cascade": "all, delete-orphan",
+        },
+    )
 
 
 class RuleModel(SQLModel, table=True):
@@ -24,6 +45,39 @@ class RuleModel(SQLModel, table=True):
     description: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    project: Optional[ProjectModel] = Relationship(
+        back_populates="rules",
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(RuleModel.project_id) == ProjectModel.id",
+            "foreign_keys": "RuleModel.project_id",
+        },
+    )
+    nodes: List["NodeModel"] = Relationship(
+        back_populates="rule",
+        sa_relationship_kwargs={
+            "primaryjoin": "RuleModel.id == foreign(NodeModel.rule_id)",
+            "cascade": "all, delete-orphan",
+        },
+    )
+    edges: List["EdgeModel"] = Relationship(
+        back_populates="rule",
+        sa_relationship_kwargs={
+            "primaryjoin": "RuleModel.id == foreign(EdgeModel.rule_id)",
+            "cascade": "all, delete-orphan",
+        },
+    )
+    executions: List["ExecutionModel"] = Relationship(
+        back_populates="rule",
+        sa_relationship_kwargs={
+            "primaryjoin": "RuleModel.id == foreign(ExecutionModel.rule_id)",
+        },
+    )
+    stored_data: List["StoredDataModel"] = Relationship(
+        back_populates="rule",
+        sa_relationship_kwargs={
+            "primaryjoin": "RuleModel.id == foreign(StoredDataModel.rule_id)",
+        },
+    )
 
 
 class NodeModel(SQLModel, table=True):
@@ -37,6 +91,13 @@ class NodeModel(SQLModel, table=True):
     position_x: float = Field(nullable=False)
     position_y: float = Field(nullable=False)
     config: str | None = None
+    rule: Optional[RuleModel] = Relationship(
+        back_populates="nodes",
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(NodeModel.rule_id) == RuleModel.id",
+            "foreign_keys": "NodeModel.rule_id",
+        },
+    )
 
 
 class EdgeModel(SQLModel, table=True):
@@ -50,6 +111,13 @@ class EdgeModel(SQLModel, table=True):
     source_node: str = Field(nullable=False)
     target_node: str = Field(nullable=False)
     condition: str | None = None
+    rule: Optional[RuleModel] = Relationship(
+        back_populates="edges",
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(EdgeModel.rule_id) == RuleModel.id",
+            "foreign_keys": "EdgeModel.rule_id",
+        },
+    )
 
 
 class GlobalVarModel(SQLModel, table=True):
@@ -66,6 +134,13 @@ class GlobalVarModel(SQLModel, table=True):
     description: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    project: Optional[ProjectModel] = Relationship(
+        back_populates="globals",
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(GlobalVarModel.project_id) == ProjectModel.id",
+            "foreign_keys": "GlobalVarModel.project_id",
+        },
+    )
 
 
 class ExecutionModel(SQLModel, table=True):
@@ -80,6 +155,33 @@ class ExecutionModel(SQLModel, table=True):
     status: str | None = None
     variables: str | None = None
     result_summary: str | None = None
+    project: Optional[ProjectModel] = Relationship(
+        back_populates="executions",
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(ExecutionModel.project_id) == ProjectModel.id",
+            "foreign_keys": "ExecutionModel.project_id",
+        },
+    )
+    rule: Optional[RuleModel] = Relationship(
+        back_populates="executions",
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(ExecutionModel.rule_id) == RuleModel.id",
+            "foreign_keys": "ExecutionModel.rule_id",
+        },
+    )
+    steps: List["ExecutionStepModel"] = Relationship(
+        back_populates="execution",
+        sa_relationship_kwargs={
+            "primaryjoin": "ExecutionModel.execution_id == foreign(ExecutionStepModel.execution_id)",
+            "cascade": "all, delete-orphan",
+        },
+    )
+    stored_data: List["StoredDataModel"] = Relationship(
+        back_populates="execution",
+        sa_relationship_kwargs={
+            "primaryjoin": "ExecutionModel.execution_id == foreign(StoredDataModel.execution_id)",
+        },
+    )
 
 
 class ExecutionStepModel(SQLModel, table=True):
@@ -94,6 +196,13 @@ class ExecutionStepModel(SQLModel, table=True):
     completed_at: str | None = None
     status: str | None = None
     output: str | None = None
+    execution: Optional[ExecutionModel] = Relationship(
+        back_populates="steps",
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(ExecutionStepModel.execution_id) == ExecutionModel.execution_id",
+            "foreign_keys": "ExecutionStepModel.execution_id",
+        },
+    )
 
 
 class StoredDataModel(SQLModel, table=True):
@@ -107,3 +216,23 @@ class StoredDataModel(SQLModel, table=True):
     key: str | None = None
     value: str | None = None
     created_at: str | None = None
+    project: Optional[ProjectModel] = Relationship(
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(StoredDataModel.project_id) == ProjectModel.id",
+            "foreign_keys": "StoredDataModel.project_id",
+        },
+    )
+    rule: Optional[RuleModel] = Relationship(
+        back_populates="stored_data",
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(StoredDataModel.rule_id) == RuleModel.id",
+            "foreign_keys": "StoredDataModel.rule_id",
+        },
+    )
+    execution: Optional[ExecutionModel] = Relationship(
+        back_populates="stored_data",
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(StoredDataModel.execution_id) == ExecutionModel.execution_id",
+            "foreign_keys": "StoredDataModel.execution_id",
+        },
+    )

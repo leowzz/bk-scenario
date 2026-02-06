@@ -12,7 +12,12 @@ dependencies = [
     "pydantic>=2.12.5",
     "pydantic-settings>=2.10.1",
     "pyyaml>=6.0.2",
-    "sqlalchemy>=2.0.36",
-    "sqlmodel>=0.0.24",
+    "sqlalchemy>=2.0.46",
+    "sqlmodel>=0.0.32",
     "uvicorn>=0.40.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
 ]
