@@ -11,8 +11,8 @@ class RuleEngine:
     def __init__(self, storage: Storage):
         self.storage = storage
 
-    def execute_rule(self, rule_id: int, variables: dict[str, Any]) -> dict[str, Any]:
-        execution = self.storage.create_execution(rule_id, variables)
+    def execute_rule(self, project_id: int, rule_id: int, variables: dict[str, Any]) -> dict[str, Any]:
+        execution = self.storage.create_execution(project_id, rule_id, variables)
         try:
             nodes = self.storage.list_nodes(rule_id)
             edges = self.storage.list_edges(rule_id)
@@ -40,7 +40,7 @@ class RuleEngine:
                     key = TemplateRenderer.render(config.get("store_key", ""), variables)
                     value = TemplateRenderer.render(config.get("store_value", ""), variables)
                     step = self.storage.add_step(execution.execution_id, node_id, action_type, f"{key}={value}")
-                    self.storage.store_data(execution.execution_id, node_id, key, value)
+                    self.storage.store_data(project_id, rule_id, execution.execution_id, node_id, key, value)
                     self.storage.complete_step(step.id, "completed", "stored")
                 else:
                     step = self.storage.add_step(execution.execution_id, node_id, action_type, "")

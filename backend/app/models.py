@@ -1,6 +1,7 @@
-from pydantic import BaseModel
-from typing import Any, Optional, List
 from enum import Enum
+from typing import Any, List, Optional
+
+from pydantic import BaseModel
 
 
 class NodeType(str, Enum):
@@ -14,6 +15,34 @@ class NodeConfig(BaseModel):
     log_message: Optional[str] = None
     store_key: Optional[str] = None
     store_value: Optional[str] = None
+
+
+class ProjectCreate(BaseModel):
+    name: str
+    description: str = ""
+
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class Project(BaseModel):
+    id: int
+    name: str
+    description: str
+    created_at: str
+    updated_at: str
+
+
+class RuleCreate(BaseModel):
+    name: str
+    description: str = ""
+
+
+class RuleUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 
 class Node(BaseModel):
@@ -33,18 +62,9 @@ class Edge(BaseModel):
     condition: Optional[str] = None
 
 
-class RuleCreate(BaseModel):
-    name: str
-    description: str = ""
-
-
-class RuleUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-
-
 class Rule(BaseModel):
     id: int
+    project_id: int
     name: str
     description: str
     created_at: str
@@ -54,6 +74,14 @@ class Rule(BaseModel):
 
 
 class GlobalVar(BaseModel):
+    project_id: int
+    key: str
+    value: Optional[str] = None
+    type: Optional[str] = "string"
+    description: Optional[str] = None
+
+
+class GlobalVarUpsert(BaseModel):
     key: str
     value: Optional[str] = None
     type: Optional[str] = "string"
@@ -61,6 +89,7 @@ class GlobalVar(BaseModel):
 
 
 class ExecutionRequest(BaseModel):
+    project_id: int
     rule_id: int
     variables: dict[str, Any] = {}
 
@@ -79,6 +108,7 @@ class ExecutionStep(BaseModel):
 
 class Execution(BaseModel):
     id: int
+    project_id: int
     rule_id: int
     execution_id: str
     started_at: str
@@ -87,3 +117,4 @@ class Execution(BaseModel):
     variables: dict[str, Any]
     result_summary: Optional[str] = None
     steps: List[ExecutionStep] = []
+

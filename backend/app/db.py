@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from pathlib import Path
+from functools import lru_cache
+
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import Session, create_engine
+
+from .config import get_database_url
 
 
-DB_PATH = Path(__file__).resolve().parent.parent / "db" / "data.sqlite"
-DATABASE_URL = f"sqlite+pysqlite:///{DB_PATH}"
-
-
-class Base(DeclarativeBase):
-    pass
-
-
+@lru_cache(maxsize=1)
 def get_engine():
-    return create_engine(DATABASE_URL, echo=False, future=True)
+    return create_engine(get_database_url(), echo=False)
 
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine(), class_=Session)

@@ -1,0 +1,6 @@
+database:
+  url: postgresql+psycopg://postgres:postgres@localhost:5432/db_scenario
+
+logging:
+  level: INFO
+

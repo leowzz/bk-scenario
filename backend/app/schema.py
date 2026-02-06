@@ -1,94 +1,140 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, Integer, String, Text, Float, ForeignKey
-from sqlalchemy.orm import relationship
-from .db import Base
+from sqlalchemy import Float, Text, UniqueConstraint
+from sqlmodel import Field, Relationship, SQLModel
 
 
-class RuleModel(Base):
+class ProjectModel(SQLModel, table=True):
+    __tablename__ = "projects"
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(sa_type=Text, nullable=False, unique=True)
+    description: str | None = Field(default=None, sa_type=Text)
+    created_at: str | None = Field(default=None, sa_type=Text)
+    updated_at: str | None = Field(default=None, sa_type=Text)
+
+    rules: list["RuleModel"] = Relationship(
+        back_populates="project",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    globals: list["GlobalVarModel"] = Relationship(
+        back_populates="project",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    executions: list["ExecutionModel"] = Relationship(
+        back_populates="project",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+
+
+class RuleModel(SQLModel, table=True):
     __tablename__ = "rules"
+    __table_args__ = (UniqueConstraint("project_id", "name", name="uq_rules_project_name"),)
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(Text, nullable=False)
-    description = Column(Text)
-    created_at = Column(Text)
-    updated_at = Column(Text)
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", ondelete="CASCADE", nullable=False)
+    name: str = Field(sa_type=Text, nullable=False)
+    description: str | None = Field(default=None, sa_type=Text)
+    created_at: str | None = Field(default=None, sa_type=Text)
+    updated_at: str | None = Field(default=None, sa_type=Text)
 
-    nodes = relationship("NodeModel", cascade="all, delete-orphan", back_populates="rule")
-    edges = relationship("EdgeModel", cascade="all, delete-orphan", back_populates="rule")
+    project: ProjectModel = Relationship(back_populates="rules")
+    nodes: list["NodeModel"] = Relationship(
+        back_populates="rule",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    edges: list["EdgeModel"] = Relationship(
+        back_populates="rule",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
 
-class NodeModel(Base):
+class NodeModel(SQLModel, table=True):
     __tablename__ = "nodes"
+    __table_args__ = (UniqueConstraint("rule_id", "node_id", name="uq_nodes_rule_node"),)
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    rule_id = Column(Integer, ForeignKey("rules.id", ondelete="CASCADE"), nullable=False)
-    node_id = Column(Text, nullable=False)
-    type = Column(Text, nullable=False)
-    position_x = Column(Float, nullable=False)
-    position_y = Column(Float, nullable=False)
-    config = Column(Text)
+    id: int | None = Field(default=None, primary_key=True)
+    rule_id: int = Field(foreign_key="rules.id", ondelete="CASCADE", nullable=False)
+    node_id: str = Field(sa_type=Text, nullable=False)
+    type: str = Field(sa_type=Text, nullable=False)
+    position_x: float = Field(sa_type=Float, nullable=False)
+    position_y: float = Field(sa_type=Float, nullable=False)
+    config: str | None = Field(default=None, sa_type=Text)
 
-    rule = relationship("RuleModel", back_populates="nodes")
+    rule: RuleModel = Relationship(back_populates="nodes")
 
 
-class EdgeModel(Base):
+class EdgeModel(SQLModel, table=True):
     __tablename__ = "edges"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "source_node", "target_node", name="uq_edges_rule_src_dst"),
+    )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    rule_id = Column(Integer, ForeignKey("rules.id", ondelete="CASCADE"), nullable=False)
-    source_node = Column(Text, nullable=False)
-    target_node = Column(Text, nullable=False)
-    condition = Column(Text)
+    id: int | None = Field(default=None, primary_key=True)
+    rule_id: int = Field(foreign_key="rules.id", ondelete="CASCADE", nullable=False)
+    source_node: str = Field(sa_type=Text, nullable=False)
+    target_node: str = Field(sa_type=Text, nullable=False)
+    condition: str | None = Field(default=None, sa_type=Text)
 
-    rule = relationship("RuleModel", back_populates="edges")
+    rule: RuleModel = Relationship(back_populates="edges")
 
 
-class GlobalVarModel(Base):
+class GlobalVarModel(SQLModel, table=True):
     __tablename__ = "global_vars"
+    __table_args__ = (
+        UniqueConstraint("project_id", "key", name="uq_globals_project_key"),
+    )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    key = Column(Text, nullable=False, unique=True)
-    value = Column(Text)
-    type = Column(Text)
-    description = Column(Text)
-    created_at = Column(Text)
-    updated_at = Column(Text)
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", ondelete="CASCADE", nullable=False)
+    key: str = Field(sa_type=Text, nullable=False)
+    value: str | None = Field(default=None, sa_type=Text)
+    type: str | None = Field(default=None, sa_type=Text)
+    description: str | None = Field(default=None, sa_type=Text)
+    created_at: str | None = Field(default=None, sa_type=Text)
+    updated_at: str | None = Field(default=None, sa_type=Text)
+
+    project: ProjectModel = Relationship(back_populates="globals")
 
 
-class ExecutionModel(Base):
+class ExecutionModel(SQLModel, table=True):
     __tablename__ = "executions"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    rule_id = Column(Integer, ForeignKey("rules.id"))
-    execution_id = Column(Text, nullable=False, unique=True)
-    started_at = Column(Text)
-    completed_at = Column(Text)
-    status = Column(Text)
-    variables = Column(Text)
-    result_summary = Column(Text)
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", ondelete="CASCADE", nullable=False)
+    rule_id: int = Field(foreign_key="rules.id", ondelete="CASCADE", nullable=False)
+    execution_id: str = Field(sa_type=Text, nullable=False, unique=True)
+    started_at: str | None = Field(default=None, sa_type=Text)
+    completed_at: str | None = Field(default=None, sa_type=Text)
+    status: str | None = Field(default=None, sa_type=Text)
+    variables: str | None = Field(default=None, sa_type=Text)
+    result_summary: str | None = Field(default=None, sa_type=Text)
+
+    project: ProjectModel = Relationship(back_populates="executions")
 
 
-class ExecutionStepModel(Base):
+class ExecutionStepModel(SQLModel, table=True):
     __tablename__ = "execution_steps"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    execution_id = Column(Text, ForeignKey("executions.execution_id", ondelete="CASCADE"), nullable=False)
-    node_id = Column(Text, nullable=False)
-    action_type = Column(Text)
-    content = Column(Text)
-    started_at = Column(Text)
-    completed_at = Column(Text)
-    status = Column(Text)
-    output = Column(Text)
+    id: int | None = Field(default=None, primary_key=True)
+    execution_id: str = Field(foreign_key="executions.execution_id", ondelete="CASCADE", nullable=False)
+    node_id: str = Field(sa_type=Text, nullable=False)
+    action_type: str | None = Field(default=None, sa_type=Text)
+    content: str | None = Field(default=None, sa_type=Text)
+    started_at: str | None = Field(default=None, sa_type=Text)
+    completed_at: str | None = Field(default=None, sa_type=Text)
+    status: str | None = Field(default=None, sa_type=Text)
+    output: str | None = Field(default=None, sa_type=Text)
 
 
-class StoredDataModel(Base):
+class StoredDataModel(SQLModel, table=True):
     __tablename__ = "stored_data"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    execution_id = Column(Text, ForeignKey("executions.execution_id", ondelete="CASCADE"), nullable=False)
-    node_id = Column(Text, nullable=False)
-    key = Column(Text)
-    value = Column(Text)
-    created_at = Column(Text)
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", ondelete="CASCADE", nullable=False)
+    rule_id: int = Field(foreign_key="rules.id", ondelete="CASCADE", nullable=False)
+    execution_id: str = Field(foreign_key="executions.execution_id", ondelete="CASCADE", nullable=False)
+    node_id: str = Field(sa_type=Text, nullable=False)
+    key: str | None = Field(default=None, sa_type=Text)
+    value: str | None = Field(default=None, sa_type=Text)
+    created_at: str | None = Field(default=None, sa_type=Text)

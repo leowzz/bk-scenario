@@ -4,16 +4,18 @@ import json
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select, delete
+from sqlalchemy import delete
+from sqlmodel import select
 
 from .db import SessionLocal
 from .schema import (
-    RuleModel,
-    NodeModel,
     EdgeModel,
-    GlobalVarModel,
     ExecutionModel,
     ExecutionStepModel,
+    GlobalVarModel,
+    NodeModel,
+    ProjectModel,
+    RuleModel,
     StoredDataModel,
 )
 
@@ -29,23 +31,68 @@ class Storage:
     def close(self):
         self.session.close()
 
-    # ===== Rules =====
-    def create_rule(self, name: str, description: str) -> RuleModel:
+    # ===== Projects =====
+    def create_project(self, name: str, description: str) -> ProjectModel:
         now = _now_iso()
-        rule = RuleModel(name=name, description=description, created_at=now, updated_at=now)
+        project = ProjectModel(name=name, description=description, created_at=now, updated_at=now)
+        self.session.add(project)
+        self.session.commit()
+        self.session.refresh(project)
+        return project
+
+    def list_projects(self) -> list[ProjectModel]:
+        return list(self.session.exec(select(ProjectModel)).all())
+
+    def get_project(self, project_id: int) -> ProjectModel | None:
+        return self.session.get(ProjectModel, project_id)
+
+    def get_project_by_name(self, name: str) -> ProjectModel | None:
+        return self.session.exec(select(ProjectModel).where(ProjectModel.name == name)).first()
+
+    def update_project(self, project_id: int, name: str | None, description: str | None) -> ProjectModel | None:
+        project = self.get_project(project_id)
+        if not project:
+            return None
+        if name is not None:
+            project.name = name
+        if description is not None:
+            project.description = description
+        project.updated_at = _now_iso()
+        self.session.commit()
+        self.session.refresh(project)
+        return project
+
+    def delete_project(self, project_id: int) -> bool:
+        project = self.get_project(project_id)
+        if not project:
+            return False
+        self.session.delete(project)
+        self.session.commit()
+        return True
+
+    def ensure_default_project(self) -> ProjectModel:
+        existing = self.get_project_by_name("default")
+        if existing:
+            return existing
+        return self.create_project("default", "Default project for compatibility APIs")
+
+    # ===== Rules =====
+    def create_rule(self, project_id: int, name: str, description: str) -> RuleModel:
+        now = _now_iso()
+        rule = RuleModel(project_id=project_id, name=name, description=description, created_at=now, updated_at=now)
         self.session.add(rule)
         self.session.commit()
         self.session.refresh(rule)
         return rule
 
-    def list_rules(self) -> list[RuleModel]:
-        return list(self.session.scalars(select(RuleModel)))
+    def list_rules(self, project_id: int) -> list[RuleModel]:
+        return list(self.session.exec(select(RuleModel).where(RuleModel.project_id == project_id)).all())
 
-    def get_rule(self, rule_id: int) -> RuleModel | None:
-        return self.session.get(RuleModel, rule_id)
+    def get_rule(self, project_id: int, rule_id: int) -> RuleModel | None:
+        return self.session.exec(select(RuleModel).where(RuleModel.project_id == project_id, RuleModel.id == rule_id)).first()
 
-    def update_rule(self, rule_id: int, name: str | None, description: str | None) -> RuleModel | None:
-        rule = self.get_rule(rule_id)
+    def update_rule(self, project_id: int, rule_id: int, name: str | None, description: str | None) -> RuleModel | None:
+        rule = self.get_rule(project_id, rule_id)
         if not rule:
             return None
         if name is not None:
@@ -57,8 +104,8 @@ class Storage:
         self.session.refresh(rule)
         return rule
 
-    def delete_rule(self, rule_id: int) -> bool:
-        rule = self.get_rule(rule_id)
+    def delete_rule(self, project_id: int, rule_id: int) -> bool:
+        rule = self.get_rule(project_id, rule_id)
         if not rule:
             return False
         self.session.delete(rule)
@@ -95,17 +142,21 @@ class Storage:
         self.session.commit()
 
     def list_nodes(self, rule_id: int) -> list[NodeModel]:
-        return list(self.session.scalars(select(NodeModel).where(NodeModel.rule_id == rule_id)))
+        return list(self.session.exec(select(NodeModel).where(NodeModel.rule_id == rule_id)).all())
 
     def list_edges(self, rule_id: int) -> list[EdgeModel]:
-        return list(self.session.scalars(select(EdgeModel).where(EdgeModel.rule_id == rule_id)))
+        return list(self.session.exec(select(EdgeModel).where(EdgeModel.rule_id == rule_id)).all())
 
     # ===== Global Vars =====
-    def list_globals(self) -> list[GlobalVarModel]:
-        return list(self.session.scalars(select(GlobalVarModel)))
+    def list_globals(self, project_id: int) -> list[GlobalVarModel]:
+        return list(self.session.exec(select(GlobalVarModel).where(GlobalVarModel.project_id == project_id)).all())
 
-    def upsert_global(self, key: str, value: str | None, var_type: str | None, description: str | None) -> GlobalVarModel:
-        existing = self.session.scalar(select(GlobalVarModel).where(GlobalVarModel.key == key))
+    def upsert_global(
+        self, project_id: int, key: str, value: str | None, var_type: str | None, description: str | None
+    ) -> GlobalVarModel:
+        existing = self.session.exec(
+            select(GlobalVarModel).where(GlobalVarModel.project_id == project_id, GlobalVarModel.key == key)
+        ).first()
         now = _now_iso()
         if existing:
             existing.value = value
@@ -117,6 +168,7 @@ class Storage:
             return existing
 
         record = GlobalVarModel(
+            project_id=project_id,
             key=key,
             value=value,
             type=var_type,
@@ -129,8 +181,10 @@ class Storage:
         self.session.refresh(record)
         return record
 
-    def delete_global(self, key: str) -> bool:
-        record = self.session.scalar(select(GlobalVarModel).where(GlobalVarModel.key == key))
+    def delete_global(self, project_id: int, key: str) -> bool:
+        record = self.session.exec(
+            select(GlobalVarModel).where(GlobalVarModel.project_id == project_id, GlobalVarModel.key == key)
+        ).first()
         if not record:
             return False
         self.session.delete(record)
@@ -138,9 +192,10 @@ class Storage:
         return True
 
     # ===== Executions =====
-    def create_execution(self, rule_id: int, variables: dict[str, Any]) -> ExecutionModel:
+    def create_execution(self, project_id: int, rule_id: int, variables: dict[str, Any]) -> ExecutionModel:
         exec_id = f"exec_{int(datetime.utcnow().timestamp() * 1000)}"
         record = ExecutionModel(
+            project_id=project_id,
             rule_id=rule_id,
             execution_id=exec_id,
             started_at=_now_iso(),
@@ -153,7 +208,7 @@ class Storage:
         return record
 
     def complete_execution(self, execution_id: str, status: str, summary: str | None):
-        record = self.session.scalar(select(ExecutionModel).where(ExecutionModel.execution_id == execution_id))
+        record = self.session.exec(select(ExecutionModel).where(ExecutionModel.execution_id == execution_id)).first()
         if not record:
             return
         record.completed_at = _now_iso()
@@ -161,11 +216,18 @@ class Storage:
         record.result_summary = summary
         self.session.commit()
 
-    def list_executions(self, rule_id: int) -> list[ExecutionModel]:
-        return list(self.session.scalars(select(ExecutionModel).where(ExecutionModel.rule_id == rule_id)))
+    def list_executions(self, project_id: int, rule_id: int) -> list[ExecutionModel]:
+        return list(
+            self.session.exec(
+                select(ExecutionModel).where(
+                    ExecutionModel.project_id == project_id,
+                    ExecutionModel.rule_id == rule_id,
+                )
+            ).all()
+        )
 
     def get_execution(self, execution_id: str) -> ExecutionModel | None:
-        return self.session.scalar(select(ExecutionModel).where(ExecutionModel.execution_id == execution_id))
+        return self.session.exec(select(ExecutionModel).where(ExecutionModel.execution_id == execution_id)).first()
 
     def add_step(self, execution_id: str, node_id: str, action_type: str, content: str) -> ExecutionStepModel:
         step = ExecutionStepModel(
@@ -191,10 +253,14 @@ class Storage:
         self.session.commit()
 
     def list_steps(self, execution_id: str) -> list[ExecutionStepModel]:
-        return list(self.session.scalars(select(ExecutionStepModel).where(ExecutionStepModel.execution_id == execution_id)))
+        return list(self.session.exec(select(ExecutionStepModel).where(ExecutionStepModel.execution_id == execution_id)).all())
 
-    def store_data(self, execution_id: str, node_id: str, key: str | None, value: str | None):
+    def store_data(
+        self, project_id: int, rule_id: int, execution_id: str, node_id: str, key: str | None, value: str | None
+    ):
         record = StoredDataModel(
+            project_id=project_id,
+            rule_id=rule_id,
             execution_id=execution_id,
             node_id=node_id,
             key=key,
@@ -207,4 +273,4 @@ class Storage:
         return record
 
     def list_stored_data(self, execution_id: str) -> list[StoredDataModel]:
-        return list(self.session.scalars(select(StoredDataModel).where(StoredDataModel.execution_id == execution_id)))
+        return list(self.session.exec(select(StoredDataModel).where(StoredDataModel.execution_id == execution_id)).all())

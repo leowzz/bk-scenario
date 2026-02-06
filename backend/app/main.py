@@ -1,29 +1,120 @@
 from __future__ import annotations
 
 import json
-from fastapi import FastAPI, HTTPException
+from time import perf_counter
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
+from loguru import logger
+from sqlmodel import SQLModel
 
-from .db import Base, get_engine
-from .models import RuleCreate, RuleUpdate, Rule, Node, Edge, GlobalVar, ExecutionRequest
-from .storage import Storage
+from .db import get_engine
 from .engine import RuleEngine
+from .logger import configure_logging
+from .models import (
+    Edge,
+    GlobalVar,
+    GlobalVarUpsert,
+    Node,
+    Project,
+    ProjectCreate,
+    ProjectUpdate,
+    Rule,
+    RuleCreate,
+    RuleUpdate,
+)
+from .storage import Storage
 
 
-app = FastAPI(title="DB Scenario Pro", version="0.1.0")
+app = FastAPI(title="DB Scenario Pro", version="0.2.0")
 
-# Static (optional for split frontend/backend)
 _static_dir = Path(__file__).resolve().parent.parent / "frontend"
 if _static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
+def _to_project(model) -> Project:
+    return Project(
+        id=model.id,
+        name=model.name,
+        description=model.description or "",
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+def _to_rule(model, nodes=None, edges=None) -> Rule:
+    return Rule(
+        id=model.id,
+        project_id=model.project_id,
+        name=model.name,
+        description=model.description or "",
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+        nodes=nodes or [],
+        edges=edges or [],
+    )
+
+
+def _to_node(model) -> Node:
+    return Node(
+        id=model.node_id,
+        rule_id=model.rule_id,
+        type=model.type,
+        position_x=model.position_x,
+        position_y=model.position_y,
+        config=json.loads(model.config or "{}"),
+    )
+
+
+def _to_edge(model) -> Edge:
+    return Edge(
+        id=model.id,
+        rule_id=model.rule_id,
+        source_node=model.source_node,
+        target_node=model.target_node,
+        condition=model.condition,
+    )
+
+
+def _get_default_project_id(storage: Storage) -> int:
+    return storage.ensure_default_project().id
+
+
 @app.on_event("startup")
 def on_startup():
+    configure_logging()
     engine = get_engine()
-    Base.metadata.create_all(bind=engine)
+    SQLModel.metadata.create_all(bind=engine)
+    storage = Storage()
+    try:
+        default_project = storage.ensure_default_project()
+        logger.info("startup completed, default project id={}", default_project.id)
+    finally:
+        storage.close()
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (perf_counter() - start) * 1000
+        logger.exception("request failed method={} path={} duration_ms={:.2f}", request.method, request.url.path, duration_ms)
+        raise
+    duration_ms = (perf_counter() - start) * 1000
+    logger.info(
+        "request method={} path={} status={} duration_ms={:.2f}",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
 
 
 @app.get("/")
@@ -34,78 +125,118 @@ async def index():
     return {"status": "ok"}
 
 
-@app.post("/api/rules", response_model=Rule)
-async def create_rule(req: RuleCreate):
+# ===== Projects =====
+@app.post("/api/projects", response_model=Project)
+async def create_project(req: ProjectCreate):
     storage = Storage()
     try:
-        rule = storage.create_rule(req.name, req.description)
-        return Rule(id=rule.id, name=rule.name, description=rule.description or "", created_at=rule.created_at, updated_at=rule.updated_at)
+        existing = storage.get_project_by_name(req.name)
+        if existing:
+            raise HTTPException(status_code=409, detail="Project already exists")
+        return _to_project(storage.create_project(req.name, req.description))
     finally:
         storage.close()
 
 
-@app.get("/api/rules", response_model=list[Rule])
-async def list_rules():
+@app.get("/api/projects", response_model=list[Project])
+async def list_projects():
     storage = Storage()
     try:
-        rules = storage.list_rules()
-        return [Rule(id=r.id, name=r.name, description=r.description or "", created_at=r.created_at, updated_at=r.updated_at) for r in rules]
+        return [_to_project(p) for p in storage.list_projects()]
     finally:
         storage.close()
 
 
-@app.get("/api/rules/{rule_id}", response_model=Rule)
-async def get_rule(rule_id: int):
+@app.get("/api/projects/{project_id}", response_model=Project)
+async def get_project(project_id: int):
     storage = Storage()
     try:
-        rule = storage.get_rule(rule_id)
+        project = storage.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return _to_project(project)
+    finally:
+        storage.close()
+
+
+@app.put("/api/projects/{project_id}", response_model=Project)
+async def update_project(project_id: int, req: ProjectUpdate):
+    storage = Storage()
+    try:
+        project = storage.update_project(project_id, req.name, req.description)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return _to_project(project)
+    finally:
+        storage.close()
+
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: int):
+    storage = Storage()
+    try:
+        ok = storage.delete_project(project_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return {"deleted": True}
+    finally:
+        storage.close()
+
+
+# ===== Project-scoped Rules =====
+@app.post("/api/projects/{project_id}/rules", response_model=Rule)
+async def create_rule(project_id: int, req: RuleCreate):
+    storage = Storage()
+    try:
+        if not storage.get_project(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        return _to_rule(storage.create_rule(project_id, req.name, req.description))
+    finally:
+        storage.close()
+
+
+@app.get("/api/projects/{project_id}/rules", response_model=list[Rule])
+async def list_rules(project_id: int):
+    storage = Storage()
+    try:
+        if not storage.get_project(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        return [_to_rule(r) for r in storage.list_rules(project_id)]
+    finally:
+        storage.close()
+
+
+@app.get("/api/projects/{project_id}/rules/{rule_id}", response_model=Rule)
+async def get_rule(project_id: int, rule_id: int):
+    storage = Storage()
+    try:
+        rule = storage.get_rule(project_id, rule_id)
         if not rule:
             raise HTTPException(status_code=404, detail="Rule not found")
-        nodes = storage.list_nodes(rule_id)
-        edges = storage.list_edges(rule_id)
-        return Rule(
-            id=rule.id,
-            name=rule.name,
-            description=rule.description or "",
-            created_at=rule.created_at,
-            updated_at=rule.updated_at,
-            nodes=[
-                Node(
-                    id=n.node_id,
-                    rule_id=n.rule_id,
-                    type=n.type,
-                    position_x=n.position_x,
-                    position_y=n.position_y,
-                    config=json.loads(n.config or "{}"),
-                )
-                for n in nodes
-            ],
-            edges=[
-                Edge(id=e.id, rule_id=e.rule_id, source_node=e.source_node, target_node=e.target_node, condition=e.condition)
-                for e in edges
-            ],
-        )
+        nodes = [_to_node(n) for n in storage.list_nodes(rule_id)]
+        edges = [_to_edge(e) for e in storage.list_edges(rule_id)]
+        return _to_rule(rule, nodes=nodes, edges=edges)
     finally:
         storage.close()
 
 
-@app.put("/api/rules/{rule_id}", response_model=Rule)
-async def update_rule(rule_id: int, req: RuleUpdate):
+@app.put("/api/projects/{project_id}/rules/{rule_id}", response_model=Rule)
+async def update_rule(project_id: int, rule_id: int, req: RuleUpdate):
     storage = Storage()
     try:
-        rule = storage.update_rule(rule_id, req.name, req.description)
+        rule = storage.update_rule(project_id, rule_id, req.name, req.description)
         if not rule:
             raise HTTPException(status_code=404, detail="Rule not found")
-        return Rule(id=rule.id, name=rule.name, description=rule.description or "", created_at=rule.created_at, updated_at=rule.updated_at)
+        return _to_rule(rule)
     finally:
         storage.close()
 
 
-@app.delete("/api/rules/{rule_id}")
-async def delete_rule(rule_id: int):
+@app.delete("/api/projects/{project_id}/rules/{rule_id}")
+async def delete_rule(project_id: int, rule_id: int):
     storage = Storage()
     try:
-        ok = storage.delete_rule(rule_id)
+        ok = storage.delete_rule(project_id, rule_id)
         if not ok:
             raise HTTPException(status_code=404, detail="Rule not found")
         return {"deleted": True}
@@ -113,47 +244,56 @@ async def delete_rule(rule_id: int):
         storage.close()
 
 
-@app.put("/api/rules/{rule_id}/graph")
-async def replace_rule_graph(rule_id: int, payload: dict):
+@app.put("/api/projects/{project_id}/rules/{rule_id}/graph")
+async def replace_rule_graph(project_id: int, rule_id: int, payload: dict[str, Any]):
     storage = Storage()
     try:
-        rule = storage.get_rule(rule_id)
+        rule = storage.get_rule(project_id, rule_id)
         if not rule:
             raise HTTPException(status_code=404, detail="Rule not found")
-        nodes = payload.get("nodes", [])
-        edges = payload.get("edges", [])
-        storage.replace_nodes(rule_id, nodes)
-        storage.replace_edges(rule_id, edges)
+        storage.replace_nodes(rule_id, payload.get("nodes", []))
+        storage.replace_edges(rule_id, payload.get("edges", []))
         return {"updated": True}
     finally:
         storage.close()
 
 
-@app.get("/api/globals", response_model=list[GlobalVar])
-async def list_globals():
+# ===== Project-scoped Globals =====
+@app.get("/api/projects/{project_id}/globals", response_model=list[GlobalVar])
+async def list_globals(project_id: int):
     storage = Storage()
     try:
-        records = storage.list_globals()
-        return [GlobalVar(key=r.key, value=r.value, type=r.type, description=r.description) for r in records]
+        if not storage.get_project(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        records = storage.list_globals(project_id)
+        return [GlobalVar(project_id=r.project_id, key=r.key, value=r.value, type=r.type, description=r.description) for r in records]
     finally:
         storage.close()
 
 
-@app.post("/api/globals", response_model=GlobalVar)
-async def upsert_global(req: GlobalVar):
+@app.post("/api/projects/{project_id}/globals", response_model=GlobalVar)
+async def upsert_global(project_id: int, req: GlobalVarUpsert):
     storage = Storage()
     try:
-        record = storage.upsert_global(req.key, req.value, req.type, req.description)
-        return GlobalVar(key=record.key, value=record.value, type=record.type, description=record.description)
+        if not storage.get_project(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        record = storage.upsert_global(project_id, req.key, req.value, req.type, req.description)
+        return GlobalVar(
+            project_id=record.project_id,
+            key=record.key,
+            value=record.value,
+            type=record.type,
+            description=record.description,
+        )
     finally:
         storage.close()
 
 
-@app.delete("/api/globals/{key}")
-async def delete_global(key: str):
+@app.delete("/api/projects/{project_id}/globals/{key}")
+async def delete_global(project_id: int, key: str):
     storage = Storage()
     try:
-        ok = storage.delete_global(key)
+        ok = storage.delete_global(project_id, key)
         if not ok:
             raise HTTPException(status_code=404, detail="Global not found")
         return {"deleted": True}
@@ -161,31 +301,47 @@ async def delete_global(key: str):
         storage.close()
 
 
+# ===== Execute =====
 @app.post("/api/execute")
-async def execute_rule(req: ExecutionRequest):
+async def execute_rule(payload: dict[str, Any]):
     storage = Storage()
     try:
-        rule = storage.get_rule(req.rule_id)
+        project_id = payload.get("project_id")
+        if project_id is None:
+            project_id = _get_default_project_id(storage)
+        rule_id = payload.get("rule_id")
+        variables = payload.get("variables", {})
+
+        if rule_id is None:
+            raise HTTPException(status_code=422, detail="rule_id is required")
+        if not isinstance(variables, dict):
+            raise HTTPException(status_code=422, detail="variables must be object")
+
+        rule = storage.get_rule(project_id, int(rule_id))
         if not rule:
-            raise HTTPException(status_code=404, detail="Rule not found")
+            raise HTTPException(status_code=404, detail="Rule not found in project")
         engine = RuleEngine(storage)
-        return engine.execute_rule(req.rule_id, req.variables)
+        return engine.execute_rule(project_id, int(rule_id), variables)
     finally:
         storage.close()
 
 
-@app.get("/api/executions/{rule_id}")
-async def list_executions(rule_id: int):
+@app.get("/api/projects/{project_id}/executions/{rule_id}")
+async def list_executions(project_id: int, rule_id: int):
     storage = Storage()
     try:
-        records = storage.list_executions(rule_id)
+        records = storage.list_executions(project_id, rule_id)
         return [
             {
                 "execution_id": r.execution_id,
+                "project_id": r.project_id,
+                "rule_id": r.rule_id,
                 "started_at": r.started_at,
                 "completed_at": r.completed_at,
                 "status": r.status,
-                "variables": json.loads(r.variables or "{}")} for r in records
+                "variables": json.loads(r.variables or "{}"),
+            }
+            for r in records
         ]
     finally:
         storage.close()
@@ -202,6 +358,7 @@ async def get_execution(execution_id: str):
         stored = storage.list_stored_data(execution_id)
         return {
             "execution_id": record.execution_id,
+            "project_id": record.project_id,
             "rule_id": record.rule_id,
             "started_at": record.started_at,
             "completed_at": record.completed_at,
@@ -221,6 +378,8 @@ async def get_execution(execution_id: str):
             ],
             "stored": [
                 {
+                    "project_id": d.project_id,
+                    "rule_id": d.rule_id,
                     "node_id": d.node_id,
                     "key": d.key,
                     "value": d.value,
@@ -229,5 +388,145 @@ async def get_execution(execution_id: str):
                 for d in stored
             ],
         }
+    finally:
+        storage.close()
+
+
+# ===== Compatibility APIs for existing frontend =====
+@app.post("/api/rules", response_model=Rule)
+async def compat_create_rule(req: RuleCreate):
+    storage = Storage()
+    try:
+        project_id = _get_default_project_id(storage)
+        return _to_rule(storage.create_rule(project_id, req.name, req.description))
+    finally:
+        storage.close()
+
+
+@app.get("/api/rules", response_model=list[Rule])
+async def compat_list_rules():
+    storage = Storage()
+    try:
+        project_id = _get_default_project_id(storage)
+        return [_to_rule(r) for r in storage.list_rules(project_id)]
+    finally:
+        storage.close()
+
+
+@app.get("/api/rules/{rule_id}", response_model=Rule)
+async def compat_get_rule(rule_id: int):
+    storage = Storage()
+    try:
+        project_id = _get_default_project_id(storage)
+        rule = storage.get_rule(project_id, rule_id)
+        if not rule:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        nodes = [_to_node(n) for n in storage.list_nodes(rule_id)]
+        edges = [_to_edge(e) for e in storage.list_edges(rule_id)]
+        return _to_rule(rule, nodes=nodes, edges=edges)
+    finally:
+        storage.close()
+
+
+@app.put("/api/rules/{rule_id}", response_model=Rule)
+async def compat_update_rule(rule_id: int, req: RuleUpdate):
+    storage = Storage()
+    try:
+        project_id = _get_default_project_id(storage)
+        rule = storage.update_rule(project_id, rule_id, req.name, req.description)
+        if not rule:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        return _to_rule(rule)
+    finally:
+        storage.close()
+
+
+@app.delete("/api/rules/{rule_id}")
+async def compat_delete_rule(rule_id: int):
+    storage = Storage()
+    try:
+        project_id = _get_default_project_id(storage)
+        ok = storage.delete_rule(project_id, rule_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        return {"deleted": True}
+    finally:
+        storage.close()
+
+
+@app.put("/api/rules/{rule_id}/graph")
+async def compat_replace_rule_graph(rule_id: int, payload: dict[str, Any]):
+    storage = Storage()
+    try:
+        project_id = _get_default_project_id(storage)
+        rule = storage.get_rule(project_id, rule_id)
+        if not rule:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        storage.replace_nodes(rule_id, payload.get("nodes", []))
+        storage.replace_edges(rule_id, payload.get("edges", []))
+        return {"updated": True}
+    finally:
+        storage.close()
+
+
+@app.get("/api/globals", response_model=list[GlobalVar])
+async def compat_list_globals():
+    storage = Storage()
+    try:
+        project_id = _get_default_project_id(storage)
+        records = storage.list_globals(project_id)
+        return [GlobalVar(project_id=r.project_id, key=r.key, value=r.value, type=r.type, description=r.description) for r in records]
+    finally:
+        storage.close()
+
+
+@app.post("/api/globals", response_model=GlobalVar)
+async def compat_upsert_global(req: GlobalVarUpsert):
+    storage = Storage()
+    try:
+        project_id = _get_default_project_id(storage)
+        record = storage.upsert_global(project_id, req.key, req.value, req.type, req.description)
+        return GlobalVar(
+            project_id=record.project_id,
+            key=record.key,
+            value=record.value,
+            type=record.type,
+            description=record.description,
+        )
+    finally:
+        storage.close()
+
+
+@app.delete("/api/globals/{key}")
+async def compat_delete_global(key: str):
+    storage = Storage()
+    try:
+        project_id = _get_default_project_id(storage)
+        ok = storage.delete_global(project_id, key)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Global not found")
+        return {"deleted": True}
+    finally:
+        storage.close()
+
+
+@app.get("/api/executions/{rule_id}")
+async def compat_list_executions(rule_id: int):
+    storage = Storage()
+    try:
+        project_id = _get_default_project_id(storage)
+        records = storage.list_executions(project_id, rule_id)
+        return [
+            {
+                "execution_id": r.execution_id,
+                "project_id": r.project_id,
+                "rule_id": r.rule_id,
+                "started_at": r.started_at,
+                "completed_at": r.completed_at,
+                "status": r.status,
+                "variables": json.loads(r.variables or "{}"),
+            }
+            for r in records
+        ]
     finally:
         storage.close()

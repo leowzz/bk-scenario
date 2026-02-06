@@ -12,3 +12,6 @@ wheels/
 
 *.sqlite
 *.db
+
+# Local backend config
+backend/config/app.yaml
