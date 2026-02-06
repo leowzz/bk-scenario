@@ -8,6 +8,7 @@ export default function Home() {
     const [rules, setRules] = useState([]);
     const [loading, setLoading] = useState(true);
     const [executingRuleId, setExecutingRuleId] = useState(null);
+    const [lastResults, setLastResults] = useState({});
     const [toast, setToast] = useState(null);
     const navigate = useNavigate();
 
@@ -32,9 +33,14 @@ export default function Home() {
         if (executingRuleId) return;
 
         setExecutingRuleId(rule.id);
+        // Reset last result for this rule
+        setLastResults(prev => {
+            const next = { ...prev };
+            delete next[rule.id];
+            return next;
+        });
+
         try {
-            // First fetch globals to pass them in (similar to App.jsx logic)
-            // In a real app, backend might handle default globals, but following existing logic:
             const globals = await fetchJson(`${API_BASE}/globals`);
             const globalsMap = globals.reduce((acc, item) => {
                 acc[item.key] = item.value;
@@ -49,11 +55,16 @@ export default function Home() {
 
             if (result.status === "failed") {
                 showToast("error", `execution failed: ${result.error || "Unknown error"}`);
+                setLastResults(prev => ({ ...prev, [rule.id]: { status: 'failed', error: result.error } }));
             } else {
                 showToast("success", "Execution started successfully");
+                // For demo purposes, we assume success if started, or maybe we track it?
+                // The API returns execution_id.
+                setLastResults(prev => ({ ...prev, [rule.id]: { status: 'success', id: result.execution_id } }));
             }
         } catch (error) {
             showToast("error", `execution error: ${error.message}`);
+            setLastResults(prev => ({ ...prev, [rule.id]: { status: 'failed', error: error.message } }));
         } finally {
             setExecutingRuleId(null);
         }
@@ -79,7 +90,7 @@ export default function Home() {
             <div className="rules-grid">
                 {loading ? (
                     <div className="loading-state">Loading scenarios...</div>
-                ) : rules.length === 0 ? (
+                ) : !Array.isArray(rules) || rules.length === 0 ? (
                     <div className="empty-state">
                         <div className="empty-icon">📂</div>
                         <h3>No rules found</h3>
@@ -87,34 +98,47 @@ export default function Home() {
                         <Link to="/editor" className="btn primary mt-4">Create Rule</Link>
                     </div>
                 ) : (
-                    rules.map((rule) => (
-                        <div key={rule.id} className="rule-card" onClick={() => navigate(`/editor/${rule.id}`)}>
-                            <div className="rule-card-header">
-                                <div className="rule-icon">⚡️</div>
-                                <div className="rule-info">
-                                    <h3>{rule.name}</h3>
-                                    <p>{rule.description || "No description provided."}</p>
+                    rules.map((rule) => {
+                        const result = lastResults[rule.id];
+                        return (
+                            <div key={rule.id} className="rule-card" onClick={() => navigate(`/editor/${rule.id}`)}>
+                                <div className="rule-info-section">
+                                    <div className="rule-card-header">
+                                        <div className="rule-icon">⚡️</div>
+                                        <div className="rule-info">
+                                            <h3>{rule.name}</h3>
+                                            <p>{rule.description || "No description provided."}</p>
+                                        </div>
+                                    </div>
+                                    <div className="rule-card-actions">
+                                        <Link to={`/editor/${rule.id}`} className="btn" onClick={(e) => e.stopPropagation()}>
+                                            <Edit size={16} /> Edit Rule
+                                        </Link>
+                                    </div>
+                                </div>
+                                <div className="rule-action-section">
+                                    <button
+                                        className="btn-big-run"
+                                        onClick={(e) => runRule(e, rule)}
+                                        disabled={executingRuleId === rule.id}
+                                    >
+                                        {executingRuleId === rule.id ? (
+                                            <span className="spinner-sm"></span>
+                                        ) : (
+                                            <Play size={24} fill="currentColor" />
+                                        )}
+                                        {executingRuleId === rule.id ? "Running..." : "Run"}
+                                    </button>
+                                    {result && (
+                                        <div className="run-result">
+                                            {result.status === 'success' && <span className="run-success">Success</span>}
+                                            {result.status === 'failed' && <span className="run-failed">Failed</span>}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                            <div className="rule-card-actions">
-                                <button
-                                    className="btn-icon-text"
-                                    onClick={(e) => runRule(e, rule)}
-                                    disabled={executingRuleId === rule.id}
-                                >
-                                    {executingRuleId === rule.id ? (
-                                        <span className="spinner-sm"></span>
-                                    ) : (
-                                        <Play size={16} fill="currentColor" />
-                                    )}
-                                    Run
-                                </button>
-                                <Link to={`/editor/${rule.id}`} className="btn-icon">
-                                    <Edit size={16} />
-                                </Link>
-                            </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
 
