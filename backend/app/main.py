@@ -118,6 +118,33 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+@app.post("/api/test-connection")
+async def test_connection(payload: dict[str, Any]):
+    conn_type = payload.get("type")
+    dsn = payload.get("dsn")
+
+    if not conn_type or not dsn:
+        raise HTTPException(status_code=422, detail="type and dsn are required")
+
+    from .connection import test_redis_connection, test_mysql_connection
+
+    if conn_type == "redis":
+        result = test_redis_connection(dsn)
+    elif conn_type == "mysql":
+        result = test_mysql_connection(dsn)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported connection type: {conn_type}")
+
+    if result["status"] == "failed":
+        return result 
+        # Or raise HTTP exception? The frontend expects 200 OK with success/failed status usually, 
+        # or we can follow the pattern of other endpoints. 
+        # Let's return the result dict, frontend can check status.
+    
+    return result
+
+
+
 @app.get("/")
 async def index():
     index_path = _static_dir / "index.html"

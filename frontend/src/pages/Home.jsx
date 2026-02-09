@@ -81,6 +81,9 @@ export default function Home() {
                 <h1 className="logo-title">Scenario Pro</h1>
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <ThemeToggle />
+                    <Link to="/settings" className="btn-icon" title="Settings">
+                        <Settings size={20} />
+                    </Link>
                     <Link to="/editor" className="btn primary">
                         <Plus size={16} /> New Rule
                     </Link>
