@@ -29,7 +29,39 @@ class RuleEngine:
                 action_type = node.type
 
                 if action_type == "sql":
-                    content = TemplateRenderer.render_sql(config.get("sql", ""), variables)
+                    connection_key = config.get("connection_key")
+                    if connection_key:
+                        dsn = variables.get(connection_key)
+                        if not dsn:
+                            raise ValueError(f"Connection not found for key: {connection_key}")
+                        
+                        from sqlalchemy import create_engine, text
+                        # Security note: In production, use connection pooling/management
+                        db_engine = create_engine(dsn)
+                        try:
+                            with db_engine.connect() as conn:
+                                result = conn.execute(text(config.get("sql", "")))
+                                # Fetch results if it's a SELECT
+                                if result.returns_rows:
+                                    rows = [dict(row._mapping) for row in result]
+                                    content = json.dumps(rows, default=str)
+                                else:
+                                    content = f"Affected rows: {result.rowcount}"
+                        except Exception as e:
+                            content = f"SQL Error: {str(e)}"
+                            # We might want to fail the step here or just log it
+                            # For now, let's treat SQL error as a failed step? 
+                            # But existing logic completes step. Let's keep it 'completed' but with error msg content for now 
+                            # or re-raise to fail execution.
+                            # Better: fail the step if SQL fails?
+                            # Re-raising will fail the execution in the except block below.
+                            raise e
+                        finally:
+                            db_engine.dispose()
+                    else:
+                        # Fallback to template rendering only (mock mode)
+                        content = TemplateRenderer.render_sql(config.get("sql", ""), variables)
+                    
                     step = self.storage.add_step(execution.execution_id, node_id, action_type, content)
                     self.storage.complete_step(step.id, "completed", content)
                 elif action_type == "log":

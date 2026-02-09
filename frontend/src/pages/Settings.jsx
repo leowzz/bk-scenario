@@ -127,8 +127,8 @@ export default function Settings() {
                         </div>
 
                         {/* Redis Config */}
-                        <div className="form-group">
-                            <label>Redis Connection</label>
+                        <div className="form-group" style={{ marginBottom: '32px' }}>
+                            <label style={{ marginBottom: '12px' }}>Redis Connection</label>
                             <div className="input-group">
                                 <input
                                     type="text"
@@ -161,7 +161,7 @@ export default function Settings() {
 
                         {/* MySQL Config */}
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label>MySQL Connection</label>
+                            <label style={{ marginBottom: '12px' }}>MySQL Connection</label>
                             <div className="input-group">
                                 <input
                                     type="text"

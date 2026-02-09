@@ -1,8 +1,26 @@
-import React from "react";
-import { X, Trash2, Play } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { X, Trash2, Play, Database } from "lucide-react";
 import { nodeTypes } from "../editor/nodeMeta";
+import { API_BASE, fetchJson } from "../utils/api";
 
 export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onDelete }) {
+  const [connections, setConnections] = useState([]);
+
+  useEffect(() => {
+    loadConnections();
+  }, []);
+
+  async function loadConnections() {
+    try {
+      const data = await fetchJson(`${API_BASE}/globals`);
+      // Filter for keys starting with db_config.
+      const dbs = data.filter(item => item.key.startsWith("db_config."));
+      setConnections(dbs);
+    } catch (error) {
+      console.error("Failed to load connections:", error);
+    }
+  }
+
   if (!node) return null;
 
   const meta = node.data.meta;
@@ -65,21 +83,43 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
           </div>
 
           {meta.type === "sql" && (
-            <div className="field">
-              <label>SQL Template</label>
-              <textarea
-                className="input"
-                rows={5}
-                value={config.sql || ""}
-                onChange={(e) =>
-                  onChange({
-                    ...meta,
-                    config: { ...config, sql: e.target.value },
-                  })
-                }
-                placeholder="SELECT * FROM table..."
-              />
-            </div>
+            <>
+              <div className="field">
+                <label>Database Connection</label>
+                <select
+                  className="input"
+                  value={config.connection_key || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, connection_key: e.target.value },
+                    })
+                  }
+                >
+                  <option value="">-- No Connection (Dry Run) --</option>
+                  {connections.map((conn) => (
+                    <option key={conn.key} value={conn.key}>
+                      {conn.key.replace("db_config.", "")} ({conn.description})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>SQL Template</label>
+                <textarea
+                  className="input"
+                  rows={5}
+                  value={config.sql || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, sql: e.target.value },
+                    })
+                  }
+                  placeholder="SELECT * FROM table..."
+                />
+              </div>
+            </>
           )}
 
           {meta.type === "log" && (
