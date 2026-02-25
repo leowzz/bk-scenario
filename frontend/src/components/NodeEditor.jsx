@@ -3,7 +3,7 @@ import { X, Trash2, Play } from "lucide-react";
 import { nodeTypes } from "../editor/nodeMeta";
 import { API_BASE, fetchJson, getDefaultProjectId } from "../utils/api";
 
-export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onDelete }) {
+export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onDelete, testStore = {}, onTestStoreChange }) {
   const [connections, setConnections] = useState([]);
 
   useEffect(() => {
@@ -347,6 +347,15 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                   {testResult.output !== undefined && testResult.output !== null && (
                     <div className="mt-2">
                       <strong>Output:</strong>
+                      {/* SQL: 渲染后的 SQL */}
+                      {testResult.action_type === "sql" && testResult.metadata?.rendered_sql && (
+                        <div style={{ marginBottom: "6px" }}>
+                          <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>rendered SQL</span>
+                          <pre style={{ margin: "2px 0", fontSize: "11px", overflow: "auto", background: "var(--bg-app)", padding: "4px 6px", borderRadius: "4px" }}>
+                            {testResult.metadata.rendered_sql}
+                          </pre>
+                        </div>
+                      )}
                       {/* SQL: 表格渲染 */}
                       {testResult.action_type === "sql" && Array.isArray(testResult.output) ? (
                         testResult.output.length === 0 ? (
@@ -414,6 +423,53 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
             </div>
           )}
         </div>
+
+        {/* store 测试变量输入区 */}
+        {onTestStoreChange && (
+          <div className="modal-body" style={{ borderTop: "1px solid var(--border)", paddingTop: "10px" }}>
+            <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "6px" }}>
+              Test Store Variables <span style={{ opacity: 0.6 }}>（用于 {"{{ store.key }}"} 模板渲染）</span>
+            </div>
+            {Object.entries(testStore).map(([k, v]) => (
+              <div key={k} style={{ display: "flex", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
+                <input
+                  className="input"
+                  style={{ width: "40%", fontSize: "12px", padding: "3px 6px" }}
+                  value={k}
+                  placeholder="key"
+                  onChange={(e) => {
+                    const next = { ...testStore };
+                    const val = next[k];
+                    delete next[k];
+                    next[e.target.value] = val;
+                    onTestStoreChange(next);
+                  }}
+                />
+                <input
+                  className="input"
+                  style={{ flex: 1, fontSize: "12px", padding: "3px 6px" }}
+                  value={v}
+                  placeholder="value"
+                  onChange={(e) => onTestStoreChange({ ...testStore, [k]: e.target.value })}
+                />
+                <button
+                  className="btn"
+                  style={{ padding: "2px 8px", fontSize: "12px" }}
+                  onClick={() => {
+                    const next = { ...testStore };
+                    delete next[k];
+                    onTestStoreChange(next);
+                  }}
+                >✕</button>
+              </div>
+            ))}
+            <button
+              className="btn"
+              style={{ fontSize: "12px", padding: "2px 10px", marginTop: "2px" }}
+              onClick={() => onTestStoreChange({ ...testStore, "": "" })}
+            >+ Add</button>
+          </div>
+        )}
 
         <div className="modal-footer">
           <button className="btn" onClick={() => onTest(meta)} disabled={isTesting}>

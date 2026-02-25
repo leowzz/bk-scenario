@@ -347,3 +347,16 @@ class Storage:
             statement = statement.where(StoredDataModel.rule_id == rule_id)
         statement = statement.order_by(StoredDataModel.id.desc())
         return self.session.exec(statement).first()
+
+    def load_latest_store_snapshot(self, project_id: int, rule_id: int) -> dict:
+        """加载 project + rule scope 下所有 key 的最新值，用于填充 ctx.store"""
+        statement = select(StoredDataModel).where(
+            StoredDataModel.project_id == project_id,
+            StoredDataModel.key.isnot(None),
+        ).order_by(StoredDataModel.id.asc())
+        records = self.session.exec(statement).all()
+        snapshot = {}
+        for r in records:
+            if r.scope == "project" or r.rule_id == rule_id:
+                snapshot[r.key] = r.value
+        return snapshot

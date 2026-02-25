@@ -395,11 +395,18 @@ async def test_node(payload: dict[str, Any]):
             project_id = _get_default_project_id(storage)
 
         node_id = node.get("id", "test-node")
+        rule_id = payload.get("rule_id", 0)
+
+        # 从 DB 加载已有 store 数据，再用 payload.store 覆盖
+        db_store = storage.load_latest_store_snapshot(project_id, rule_id)
+        db_store.update(payload.get("store", {}))
+
         ctx = ExecutionContext(
             project_id=project_id,
-            rule_id=0,
+            rule_id=rule_id,
             execution_id="test",
             vars=dict(variables),
+            store=db_store,
         )
         engine = RuleEngine(storage)
         try:
@@ -408,9 +415,21 @@ async def test_node(payload: dict[str, Any]):
             elif action_type == "log":
                 output = engine._execute_log_node(node_id, config, ctx)
             elif action_type == "store":
+                scope = config.get("scope", "rule")
+                if scope not in {"project", "rule"}:
+                    scope = "rule"
                 key = TemplateRenderer.render(str(config.get("store_key", "")), ctx.to_template_vars())
                 value = TemplateRenderer.render(str(config.get("store_value", "")), ctx.to_template_vars())
-                output = NodeOutput(node_id=node_id, node_type="store", status="success", data={"key": key, "value": value})
+                record = storage.store_data(
+                    project_id=project_id,
+                    rule_id=0,
+                    execution_id="test",
+                    node_id=node_id,
+                    scope=scope,
+                    key=key,
+                    value=value,
+                )
+                output = NodeOutput(node_id=node_id, node_type="store", status="success", data={"id": record.id, "key": key, "value": value, "scope": scope})
             elif action_type == "load":
                 key = TemplateRenderer.render(str(config.get("key", "")), ctx.to_template_vars())
                 assign_to = str(config.get("assign_to", "value"))

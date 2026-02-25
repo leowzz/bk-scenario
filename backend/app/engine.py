@@ -102,18 +102,19 @@ class RuleEngine:
 
         rendered_sql = TemplateRenderer.render_sql(config.get("sql", ""), template_vars)
         if not dsn:
-            return NodeOutput(node_id=node_id, node_type="sql", status="success", data=rendered_sql)
+            return NodeOutput(node_id=node_id, node_type="sql", status="success", data=rendered_sql, metadata={"rendered_sql": rendered_sql})
 
         from sqlalchemy import create_engine, text
 
+        dsn = dsn.replace("mysql+aiomysql://", "mysql+pymysql://").replace("aiomysql://", "mysql+pymysql://")
         db_engine = create_engine(dsn)
         try:
             with db_engine.connect() as conn:
                 result = conn.execute(text(rendered_sql))
                 if result.returns_rows:
                     rows = [dict(row._mapping) for row in result]
-                    return NodeOutput(node_id=node_id, node_type="sql", status="success", data=rows, metadata={"row_count": len(rows)})
-                return NodeOutput(node_id=node_id, node_type="sql", status="success", data=f"Affected rows: {result.rowcount}")
+                    return NodeOutput(node_id=node_id, node_type="sql", status="success", data=rows, metadata={"row_count": len(rows), "rendered_sql": rendered_sql})
+                return NodeOutput(node_id=node_id, node_type="sql", status="success", data=f"Affected rows: {result.rowcount}", metadata={"rendered_sql": rendered_sql})
         finally:
             db_engine.dispose()
 

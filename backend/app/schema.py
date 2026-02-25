@@ -243,7 +243,7 @@ class StoredDataModel(SQLModel, table=True):
     rule_id: int = Field(nullable=False)
     execution_id: str = Field(nullable=False)
     node_id: str = Field(nullable=False)
-    scope: str = Field(nullable=False, default="rule")
+    scope: str = Field(nullable=True, default="rule")
     key: str | None = None
     value: str | None = None
     created_at: str | None = None

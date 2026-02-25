@@ -299,6 +299,7 @@ export default function Editor() {
         error: "",
         result: null,
     });
+    const [nodeTestStore, setNodeTestStore] = useState({});
 
     const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId), [nodes, selectedNodeId]);
 
@@ -472,6 +473,7 @@ export default function Editor() {
                         config: meta.config || {},
                     },
                     variables: globalsMap,
+                    store: nodeTestStore,
                 }),
             });
             if (result.status === "failed") {
@@ -654,6 +656,8 @@ export default function Editor() {
                         }}
                         onTest={testCurrentNode}
                         nodeTestState={nodeTestState}
+                        testStore={nodeTestStore}
+                        onTestStoreChange={setNodeTestStore}
                         onClose={() => setSelectedNodeId(null)}
                         onDelete={deleteNode}
                     />
