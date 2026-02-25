@@ -520,11 +520,17 @@ export default function Editor() {
             sql: { x: 100 + nodes.length * 40, y: 100 + nodes.length * 40 },
             log: { x: 120 + nodes.length * 40, y: 140 + nodes.length * 40 },
             store: { x: 140 + nodes.length * 40, y: 180 + nodes.length * 40 },
+            load: { x: 160 + nodes.length * 40, y: 220 + nodes.length * 40 },
+            python: { x: 180 + nodes.length * 40, y: 260 + nodes.length * 40 },
+            shell: { x: 200 + nodes.length * 40, y: 300 + nodes.length * 40 },
         };
         const configMap = {
             sql: { sql: "" },
             log: { log_message: "" },
             store: { store_key: "", store_value: "" },
+            load: { scope: "rule", key: "", assign_to: "loaded_value" },
+            python: { script: "result = vars.get('value')", timeout_sec: 10 },
+            shell: { command: "echo hello", timeout_sec: 10 },
         };
         setNodes((prev) => {
             const nextNode = {
@@ -576,6 +582,9 @@ export default function Editor() {
                             <button className="btn primary" onClick={() => addNode("sql")}>+ SQL</button>
                             <button className="btn" onClick={() => addNode("log")}>+ LOG</button>
                             <button className="btn" onClick={() => addNode("store")}>+ STORE</button>
+                            <button className="btn" onClick={() => addNode("load")}>+ LOAD</button>
+                            <button className="btn" onClick={() => addNode("python")}>+ PYTHON</button>
+                            <button className="btn" onClick={() => addNode("shell")}>+ SHELL</button>
                             <div className="divider"></div>
                             <button className="btn ghost" onClick={saveGraph} disabled={saveDisabled}>
                                 <Save size={16} /> {saveButtonLabel}

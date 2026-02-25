@@ -9,6 +9,7 @@ from sqlmodel import select
 
 from .db import SessionLocal
 from .schema import (
+    ConnectorModel,
     EdgeModel,
     ExecutionModel,
     ExecutionStepModel,
@@ -191,6 +192,62 @@ class Storage:
         self.session.commit()
         return True
 
+    # ===== Connectors =====
+    def create_connector(self, project_id: int, name: str, connector_type: str, config_encrypted: str) -> ConnectorModel:
+        now = _now_iso()
+        connector = ConnectorModel(
+            project_id=project_id,
+            name=name,
+            type=connector_type,
+            config_encrypted=config_encrypted,
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(connector)
+        self.session.commit()
+        self.session.refresh(connector)
+        return connector
+
+    def list_connectors(self, project_id: int) -> list[ConnectorModel]:
+        return list(self.session.exec(select(ConnectorModel).where(ConnectorModel.project_id == project_id)).all())
+
+    def get_connector(self, project_id: int, connector_id: int) -> ConnectorModel | None:
+        return self.session.exec(
+            select(ConnectorModel).where(ConnectorModel.project_id == project_id, ConnectorModel.id == connector_id)
+        ).first()
+
+    def get_connector_by_name(self, project_id: int, name: str) -> ConnectorModel | None:
+        return self.session.exec(
+            select(ConnectorModel).where(ConnectorModel.project_id == project_id, ConnectorModel.name == name)
+        ).first()
+
+    def update_connector(
+        self,
+        project_id: int,
+        connector_id: int,
+        name: str | None,
+        config_encrypted: str | None,
+    ) -> ConnectorModel | None:
+        connector = self.get_connector(project_id, connector_id)
+        if not connector:
+            return None
+        if name is not None:
+            connector.name = name
+        if config_encrypted is not None:
+            connector.config_encrypted = config_encrypted
+        connector.updated_at = _now_iso()
+        self.session.commit()
+        self.session.refresh(connector)
+        return connector
+
+    def delete_connector(self, project_id: int, connector_id: int) -> bool:
+        connector = self.get_connector(project_id, connector_id)
+        if not connector:
+            return False
+        self.session.delete(connector)
+        self.session.commit()
+        return True
+
     # ===== Executions =====
     def create_execution(self, project_id: int, rule_id: int, variables: dict[str, Any]) -> ExecutionModel:
         exec_id = f"exec_{int(datetime.utcnow().timestamp() * 1000)}"
@@ -216,15 +273,11 @@ class Storage:
         record.result_summary = summary
         self.session.commit()
 
-    def list_executions(self, project_id: int, rule_id: int) -> list[ExecutionModel]:
-        return list(
-            self.session.exec(
-                select(ExecutionModel).where(
-                    ExecutionModel.project_id == project_id,
-                    ExecutionModel.rule_id == rule_id,
-                )
-            ).all()
-        )
+    def list_executions(self, project_id: int, rule_id: int | None = None) -> list[ExecutionModel]:
+        statement = select(ExecutionModel).where(ExecutionModel.project_id == project_id)
+        if rule_id is not None:
+            statement = statement.where(ExecutionModel.rule_id == rule_id)
+        return list(self.session.exec(statement).all())
 
     def get_execution(self, execution_id: str) -> ExecutionModel | None:
         return self.session.exec(select(ExecutionModel).where(ExecutionModel.execution_id == execution_id)).first()
@@ -256,13 +309,21 @@ class Storage:
         return list(self.session.exec(select(ExecutionStepModel).where(ExecutionStepModel.execution_id == execution_id)).all())
 
     def store_data(
-        self, project_id: int, rule_id: int, execution_id: str, node_id: str, key: str | None, value: str | None
+        self,
+        project_id: int,
+        rule_id: int,
+        execution_id: str,
+        node_id: str,
+        scope: str,
+        key: str | None,
+        value: str | None,
     ):
         record = StoredDataModel(
             project_id=project_id,
             rule_id=rule_id,
             execution_id=execution_id,
             node_id=node_id,
+            scope=scope,
             key=key,
             value=value,
             created_at=_now_iso(),
@@ -274,3 +335,14 @@ class Storage:
 
     def list_stored_data(self, execution_id: str) -> list[StoredDataModel]:
         return list(self.session.exec(select(StoredDataModel).where(StoredDataModel.execution_id == execution_id)).all())
+
+    def read_latest_stored_data(self, project_id: int, rule_id: int, scope: str, key: str) -> StoredDataModel | None:
+        statement = select(StoredDataModel).where(
+            StoredDataModel.project_id == project_id,
+            StoredDataModel.scope == scope,
+            StoredDataModel.key == key,
+        )
+        if scope == "rule":
+            statement = statement.where(StoredDataModel.rule_id == rule_id)
+        statement = statement.order_by(StoredDataModel.id.desc())
+        return self.session.exec(statement).first()

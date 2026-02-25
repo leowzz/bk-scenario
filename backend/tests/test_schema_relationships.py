@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.schema import (
+    ConnectorModel,
     EdgeModel,
     ExecutionModel,
     ExecutionStepModel,
@@ -45,9 +46,11 @@ def test_project_rule_node_edge_relationships_work_without_foreign_keys():
         node = NodeModel(rule_id=rule.id, node_id="n1", type="sql", position_x=1.0, position_y=2.0, config="{}")
         edge = EdgeModel(rule_id=rule.id, source_node="n1", target_node="n2")
         gvar = GlobalVarModel(project_id=project.id, key="k1", value="v1")
+        connector = ConnectorModel(project_id=project.id, name="mysql_main", type="mysql", config_encrypted="{}")
         session.add(node)
         session.add(edge)
         session.add(gvar)
+        session.add(connector)
         session.commit()
 
         loaded_project = session.exec(select(ProjectModel).where(ProjectModel.id == project.id)).one()
@@ -55,17 +58,21 @@ def test_project_rule_node_edge_relationships_work_without_foreign_keys():
         loaded_node = session.exec(select(NodeModel).where(NodeModel.id == node.id)).one()
         loaded_edge = session.exec(select(EdgeModel).where(EdgeModel.id == edge.id)).one()
         loaded_global = session.exec(select(GlobalVarModel).where(GlobalVarModel.id == gvar.id)).one()
+        loaded_connector = session.exec(select(ConnectorModel).where(ConnectorModel.id == connector.id)).one()
 
         assert len(loaded_project.rules) == 1
         assert loaded_project.rules[0].id == rule.id
         assert len(loaded_project.globals) == 1
         assert loaded_project.globals[0].id == gvar.id
+        assert len(loaded_project.connectors) == 1
+        assert loaded_project.connectors[0].id == connector.id
         assert loaded_rule.project is not None and loaded_rule.project.id == project.id
         assert len(loaded_rule.nodes) == 1 and loaded_rule.nodes[0].id == node.id
         assert len(loaded_rule.edges) == 1 and loaded_rule.edges[0].id == edge.id
         assert loaded_node.rule is not None and loaded_node.rule.id == rule.id
         assert loaded_edge.rule is not None and loaded_edge.rule.id == rule.id
         assert loaded_global.project is not None and loaded_global.project.id == project.id
+        assert loaded_connector.project is not None and loaded_connector.project.id == project.id
 
 
 def test_execution_relationships_work_without_foreign_keys():
@@ -86,7 +93,7 @@ def test_execution_relationships_work_without_foreign_keys():
         session.refresh(execution)
 
         step = ExecutionStepModel(execution_id="exec_1", node_id="n1", action_type="sql")
-        stored = StoredDataModel(project_id=project.id, rule_id=rule.id, execution_id="exec_1", node_id="n1")
+        stored = StoredDataModel(project_id=project.id, rule_id=rule.id, execution_id="exec_1", node_id="n1", scope="rule")
         session.add(step)
         session.add(stored)
         session.commit()

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { X, Trash2, Play, Database } from "lucide-react";
+import { X, Trash2, Play } from "lucide-react";
 import { nodeTypes } from "../editor/nodeMeta";
-import { API_BASE, fetchJson } from "../utils/api";
+import { API_BASE, fetchJson, getDefaultProjectId } from "../utils/api";
 
 export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onDelete }) {
   const [connections, setConnections] = useState([]);
@@ -12,10 +12,9 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
 
   async function loadConnections() {
     try {
-      const data = await fetchJson(`${API_BASE}/globals`);
-      // Filter for keys starting with db_config.
-      const dbs = data.filter(item => item.key.startsWith("db_config."));
-      setConnections(dbs);
+      const projectId = await getDefaultProjectId();
+      const data = await fetchJson(`${API_BASE}/projects/${projectId}/connectors`);
+      setConnections(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to load connections:", error);
     }
@@ -85,24 +84,45 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
           {meta.type === "sql" && (
             <>
               <div className="field">
-                <label>Database Connection</label>
+                <label>Connection Alias</label>
                 <select
                   className="input"
-                  value={config.connection_key || ""}
+                  value={config.connector || ""}
                   onChange={(e) =>
                     onChange({
                       ...meta,
-                      config: { ...config, connection_key: e.target.value },
+                      config: { ...config, connector: e.target.value },
                     })
                   }
                 >
-                  <option value="">-- No Connection (Dry Run) --</option>
-                  {connections.map((conn) => (
-                    <option key={conn.key} value={conn.key}>
-                      {conn.key.replace("db_config.", "")} ({conn.description})
+                  <option value="">-- Select MySQL alias --</option>
+                  {connections
+                    .filter((conn) => conn.type === "mysql")
+                    .map((conn) => (
+                    <option key={conn.id} value={conn.name}>
+                      {conn.name}
                     </option>
                   ))}
                 </select>
+                {connections.filter((conn) => conn.type === "mysql").length === 0 && (
+                  <small className="help-text">
+                    No mysql aliases found. Go to Settings - Connection Management.
+                  </small>
+                )}
+              </div>
+              <div className="field">
+                <label>Connection Alias (manual)</label>
+                <input
+                  className="input"
+                  placeholder="mysql_main"
+                  value={config.connector || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, connector: e.target.value },
+                    })
+                  }
+                />
               </div>
               <div className="field">
                 <label>SQL Template</label>
@@ -143,6 +163,22 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
           {meta.type === "store" && (
             <>
               <div className="field">
+                <label>Scope</label>
+                <select
+                  className="input"
+                  value={config.scope || "rule"}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, scope: e.target.value },
+                    })
+                  }
+                >
+                  <option value="rule">rule</option>
+                  <option value="project">project</option>
+                </select>
+              </div>
+              <div className="field">
                 <label>Storage Key</label>
                 <input
                   className="input"
@@ -165,6 +201,121 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                     onChange({
                       ...meta,
                       config: { ...config, store_value: e.target.value },
+                    })
+                  }
+                />
+              </div>
+            </>
+          )}
+
+          {meta.type === "load" && (
+            <>
+              <div className="field">
+                <label>Scope</label>
+                <select
+                  className="input"
+                  value={config.scope || "rule"}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, scope: e.target.value },
+                    })
+                  }
+                >
+                  <option value="rule">rule</option>
+                  <option value="project">project</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Storage Key</label>
+                <input
+                  className="input"
+                  value={config.key || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, key: e.target.value },
+                    })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Assign To Variable</label>
+                <input
+                  className="input"
+                  value={config.assign_to || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, assign_to: e.target.value },
+                    })
+                  }
+                />
+              </div>
+            </>
+          )}
+
+          {meta.type === "python" && (
+            <>
+              <div className="field">
+                <label>Python Script</label>
+                <textarea
+                  className="input"
+                  rows={6}
+                  value={config.script || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, script: e.target.value },
+                    })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Timeout (sec)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  value={config.timeout_sec ?? 10}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, timeout_sec: Number(e.target.value) || 10 },
+                    })
+                  }
+                />
+              </div>
+            </>
+          )}
+
+          {meta.type === "shell" && (
+            <>
+              <div className="field">
+                <label>Shell Command</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={config.command || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, command: e.target.value },
+                    })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Timeout (sec)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  value={config.timeout_sec ?? 10}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, timeout_sec: Number(e.target.value) || 10 },
                     })
                   }
                 />

@@ -1,206 +1,207 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Save, CheckCircle2, AlertCircle, Loader2, Database } from "lucide-react";
+import { Plus, Save, Settings2, Trash2, CheckCircle2, AlertCircle } from "lucide-react";
 import { API_BASE, fetchJson } from "../utils/api";
+import { SettingsLayout } from "../components/SettingsLayout";
 
 export default function Settings() {
-    const [configs, setConfigs] = useState({
-        "db_config.redis_dsn": "",
-        "db_config.mysql_dsn": ""
-    });
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [testing, setTesting] = useState({});
-    const [testResults, setTestResults] = useState({});
+    const [items, setItems] = useState([]);
+    const [drafts, setDrafts] = useState({});
+    const [newKey, setNewKey] = useState("");
+    const [newValue, setNewValue] = useState("");
+    const [savingMap, setSavingMap] = useState({});
+    const [deletingMap, setDeletingMap] = useState({});
+    const [creating, setCreating] = useState(false);
     const [toast, setToast] = useState(null);
 
     useEffect(() => {
-        loadConfigs();
+        loadGlobals();
     }, []);
 
-    async function loadConfigs() {
+    async function loadGlobals() {
         try {
             const data = await fetchJson(`${API_BASE}/globals`);
-            const loadedConfigs = { ...configs };
-            data.forEach(item => {
-                if (loadedConfigs.hasOwnProperty(item.key)) {
-                    loadedConfigs[item.key] = item.value;
-                }
+            setItems(Array.isArray(data) ? data : []);
+            setDrafts((prev) => {
+                const next = { ...prev };
+                (Array.isArray(data) ? data : []).forEach((item) => {
+                    next[item.key] = item.value || "";
+                });
+                return next;
             });
-            setConfigs(loadedConfigs);
         } catch (error) {
-            showToast("error", "Failed to load settings");
+            showToast("error", error.message || "加载全局变量失败");
         } finally {
             setLoading(false);
         }
     }
 
-    function handleChange(key, value) {
-        setConfigs(prev => ({ ...prev, [key]: value }));
-        setTestResults(prev => {
-            const next = { ...prev };
-            delete next[key];
-            return next;
-        });
-    }
-
-    async function handleSave() {
-        setSaving(true);
-        try {
-            for (const [key, value] of Object.entries(configs)) {
-                await fetchJson(`${API_BASE}/globals`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        key,
-                        value,
-                        type: "string",
-                        description: key.includes("redis") ? "Redis Connection String" : "MySQL Connection String"
-                    })
-                });
-            }
-            showToast("success", "Settings saved successfully");
-        } catch (error) {
-            showToast("error", `Failed to save: ${error.message}`);
-        } finally {
-            setSaving(false);
-        }
-    }
-
-    async function handleTest(type, key) {
-        const dsn = configs[key];
-        if (!dsn) {
-            showToast("error", "Please enter a connection string first");
-            return;
-        }
-
-        setTesting(prev => ({ ...prev, [key]: true }));
-        setTestResults(prev => {
-            const next = { ...prev };
-            delete next[key];
-            return next;
-        });
-
-        try {
-            const result = await fetchJson(`${API_BASE}/test-connection`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ type, dsn })
-            });
-
-            setTestResults(prev => ({ ...prev, [key]: result }));
-        } catch (error) {
-            setTestResults(prev => ({ ...prev, [key]: { status: "failed", error: error.message } }));
-        } finally {
-            setTesting(prev => ({ ...prev, [key]: false }));
-        }
-    }
-
     function showToast(type, message) {
         setToast({ type, message });
-        setTimeout(() => setToast(null), 3000);
+        window.setTimeout(() => setToast(null), 3000);
+    }
+
+    async function saveGlobal(key) {
+        setSavingMap((prev) => ({ ...prev, [key]: true }));
+        try {
+            await fetchJson(`${API_BASE}/globals`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    key,
+                    value: drafts[key] ?? "",
+                    type: "string",
+                }),
+            });
+            await loadGlobals();
+            showToast("success", `变量 ${key} 已保存`);
+        } catch (error) {
+            showToast("error", error.message || "保存失败");
+        } finally {
+            setSavingMap((prev) => ({ ...prev, [key]: false }));
+        }
+    }
+
+    async function createGlobal() {
+        if (!newKey) {
+            showToast("error", "请输入变量名");
+            return;
+        }
+        setCreating(true);
+        try {
+            await fetchJson(`${API_BASE}/globals`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    key: newKey,
+                    value: newValue,
+                    type: "string",
+                }),
+            });
+            setNewKey("");
+            setNewValue("");
+            await loadGlobals();
+            showToast("success", "全局变量已创建");
+        } catch (error) {
+            showToast("error", error.message || "创建失败");
+        } finally {
+            setCreating(false);
+        }
+    }
+
+    async function deleteGlobal(key) {
+        setDeletingMap((prev) => ({ ...prev, [key]: true }));
+        try {
+            await fetchJson(`${API_BASE}/globals/${encodeURIComponent(key)}`, { method: "DELETE" });
+            await loadGlobals();
+            showToast("success", `变量 ${key} 已删除`);
+        } catch (error) {
+            showToast("error", error.message || "删除失败");
+        } finally {
+            setDeletingMap((prev) => ({ ...prev, [key]: false }));
+        }
     }
 
     return (
-        <div className="home-container">  {/* Reusing home-container for max-width */}
-            <div className="home-header">
-                <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                    <Link to="/" className="btn-icon">
-                        <ArrowLeft size={20} />
-                    </Link>
-                    <h1 className="logo-title" style={{ fontSize: '20px' }}>Settings</h1>
-                </div>
-                <button className="btn primary" onClick={handleSave} disabled={saving}>
-                    {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
-                    Save Changes
-                </button>
-            </div>
-
-            <div style={{ maxWidth: "800px", margin: "0 auto" }}>
+        <SettingsLayout title="Settings">
+            <div className="settings-stack">
                 {loading ? (
                     <div className="loading-state">Loading settings...</div>
                 ) : (
                     <div className="card">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid var(--border-muted)' }}>
-                            <Database size={20} className="text-muted" />
-                            <h3 style={{ margin: 0, border: 'none', padding: 0 }}>Database Connections</h3>
+                        <div className="settings-card-head">
+                            <Settings2 size={20} className="text-muted" />
+                            <h3 className="settings-card-title">全局变量配置</h3>
                         </div>
 
-                        {/* Redis Config */}
-                        <div className="form-group" style={{ marginBottom: '32px' }}>
-                            <label style={{ marginBottom: '12px' }}>Redis Connection</label>
-                            <div className="input-group">
-                                <input
-                                    type="text"
-                                    className="input"
-                                    placeholder="redis://localhost:6379/0"
-                                    value={configs["db_config.redis_dsn"]}
-                                    onChange={(e) => handleChange("db_config.redis_dsn", e.target.value)}
-                                />
-                                <button
-                                    className="btn"
-                                    onClick={() => handleTest("redis", "db_config.redis_dsn")}
-                                    disabled={testing["db_config.redis_dsn"] || !configs["db_config.redis_dsn"]}
-                                >
-                                    {testing["db_config.redis_dsn"] ? <Loader2 size={16} className="spin" /> : "Test"}
-                                </button>
-                            </div>
-                            {testResults["db_config.redis_dsn"] && (
-                                <div className={`message ${testResults["db_config.redis_dsn"].status === "success" ? "success" : "error"}`}>
-                                    {testResults["db_config.redis_dsn"].status === "success" ? (
-                                        <><CheckCircle2 size={16} /> Connection successful</>
-                                    ) : (
-                                        <><AlertCircle size={16} /> {testResults["db_config.redis_dsn"].error || "Connection failed"}</>
-                                    )}
+                        <div className="settings-list">
+                            {items.length === 0 ? (
+                                <div className="empty-state" style={{ padding: "16px 0", margin: 0 }}>
+                                    <p>暂无全局变量</p>
                                 </div>
+                            ) : (
+                                items.map((item) => (
+                                    <div key={item.key} className="panel settings-panel">
+                                        <div className="settings-grid settings-grid-globals">
+                                            <div className="field">
+                                                <label>Key</label>
+                                                <input className="input" value={item.key} disabled />
+                                            </div>
+                                            <div className="field">
+                                                <label>Value</label>
+                                                <input
+                                                    className="input"
+                                                    value={drafts[item.key] ?? ""}
+                                                    onChange={(e) =>
+                                                        setDrafts((prev) => ({ ...prev, [item.key]: e.target.value }))
+                                                    }
+                                                />
+                                            </div>
+                                            <div className="field settings-action">
+                                                <button
+                                                    className="btn primary"
+                                                    onClick={() => saveGlobal(item.key)}
+                                                    disabled={savingMap[item.key]}
+                                                >
+                                                    <Save size={14} />
+                                                    {savingMap[item.key] ? "Saving..." : "保存"}
+                                                </button>
+                                            </div>
+                                            <div className="field settings-action">
+                                                <button
+                                                    className="btn"
+                                                    onClick={() => deleteGlobal(item.key)}
+                                                    disabled={deletingMap[item.key]}
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
                             )}
-                            <small className="help-text">
-                                Standard Redis URL format. Example: <code>redis://:password@localhost:6379/0</code>
-                            </small>
-                        </div>
 
-                        {/* MySQL Config */}
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label style={{ marginBottom: '12px' }}>MySQL Connection</label>
-                            <div className="input-group">
-                                <input
-                                    type="text"
-                                    className="input"
-                                    placeholder="mysql+pymysql://user:pass@localhost:3306/db"
-                                    value={configs["db_config.mysql_dsn"]}
-                                    onChange={(e) => handleChange("db_config.mysql_dsn", e.target.value)}
-                                />
-                                <button
-                                    className="btn"
-                                    onClick={() => handleTest("mysql", "db_config.mysql_dsn")}
-                                    disabled={testing["db_config.mysql_dsn"] || !configs["db_config.mysql_dsn"]}
-                                >
-                                    {testing["db_config.mysql_dsn"] ? <Loader2 size={16} className="spin" /> : "Test"}
-                                </button>
-                            </div>
-                            {testResults["db_config.mysql_dsn"] && (
-                                <div className={`message ${testResults["db_config.mysql_dsn"].status === "success" ? "success" : "error"}`}>
-                                    {testResults["db_config.mysql_dsn"].status === "success" ? (
-                                        <><CheckCircle2 size={16} /> Connection successful</>
-                                    ) : (
-                                        <><AlertCircle size={16} /> {testResults["db_config.mysql_dsn"].error || "Connection failed"}</>
-                                    )}
+                            <div className="panel settings-panel">
+                                <div>
+                                    <h3 className="settings-section-title">新增变量</h3>
                                 </div>
-                            )}
-                            <small className="help-text">
-                                SQLAlchemy style DSN. Example: <code>mysql+pymysql://user:password@localhost:3306/dbname</code>
-                            </small>
+                                <div className="settings-grid settings-grid-global-create">
+                                    <div className="field">
+                                        <label>Key</label>
+                                        <input
+                                            className="input"
+                                            placeholder="例如: env"
+                                            value={newKey}
+                                            onChange={(e) => setNewKey(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="field">
+                                        <label>Value</label>
+                                        <input
+                                            className="input"
+                                            placeholder="例如: prod"
+                                            value={newValue}
+                                            onChange={(e) => setNewValue(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="field settings-action">
+                                        <button className="btn primary" onClick={createGlobal} disabled={creating}>
+                                            <Plus size={14} />
+                                            {creating ? "Creating..." : "创建"}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}
             </div>
-
             {toast && (
                 <div className={`toast toast-${toast.type}`}>
                     {toast.type === "success" ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
                     <span>{toast.message}</span>
                 </div>
             )}
-        </div>
+        </SettingsLayout>
     );
 }

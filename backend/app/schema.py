@@ -33,6 +33,13 @@ class ProjectModel(SQLModel, table=True):
             "cascade": "all, delete-orphan",
         },
     )
+    connectors: List["ConnectorModel"] = Relationship(
+        back_populates="project",
+        sa_relationship_kwargs={
+            "primaryjoin": "ProjectModel.id == foreign(ConnectorModel.project_id)",
+            "cascade": "all, delete-orphan",
+        },
+    )
 
 
 class RuleModel(SQLModel, table=True):
@@ -143,6 +150,28 @@ class GlobalVarModel(SQLModel, table=True):
     )
 
 
+class ConnectorModel(SQLModel, table=True):
+    __tablename__ = "connectors"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_connectors_project_name"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(nullable=False)
+    name: str = Field(nullable=False)
+    type: str = Field(nullable=False)
+    config_encrypted: str = Field(nullable=False)
+    created_at: str | None = None
+    updated_at: str | None = None
+    project: Optional[ProjectModel] = Relationship(
+        back_populates="connectors",
+        sa_relationship_kwargs={
+            "primaryjoin": "foreign(ConnectorModel.project_id) == ProjectModel.id",
+            "foreign_keys": "ConnectorModel.project_id",
+        },
+    )
+
+
 class ExecutionModel(SQLModel, table=True):
     __tablename__ = "executions"
 
@@ -213,6 +242,7 @@ class StoredDataModel(SQLModel, table=True):
     rule_id: int = Field(nullable=False)
     execution_id: str = Field(nullable=False)
     node_id: str = Field(nullable=False)
+    scope: str = Field(nullable=False, default="rule")
     key: str | None = None
     value: str | None = None
     created_at: str | None = None

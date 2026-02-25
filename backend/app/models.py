@@ -8,11 +8,20 @@ class NodeType(str, Enum):
     SQL = "sql"
     LOG = "log"
     STORE = "store"
+    LOAD = "load"
+    PYTHON = "python"
+    SHELL = "shell"
 
 
 class NodeConfig(BaseModel):
     sql: Optional[str] = None
     log_message: Optional[str] = None
+    script: Optional[str] = None
+    command: Optional[str] = None
+    connector: Optional[str] = None
+    timeout_sec: Optional[int] = None
+    scope: Optional[str] = "rule"
+    assign_to: Optional[str] = None
     store_key: Optional[str] = None
     store_value: Optional[str] = None
 
@@ -94,6 +103,43 @@ class ExecutionRequest(BaseModel):
     variables: dict[str, Any] = {}
 
 
+class ConnectorCreate(BaseModel):
+    name: str
+    type: str
+    config: dict[str, Any] = {}
+
+
+class ConnectorUpdate(BaseModel):
+    name: Optional[str] = None
+    config: Optional[dict[str, Any]] = None
+
+
+class Connector(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    type: str
+    created_at: str
+    updated_at: str
+
+
+class DataWriteRequest(BaseModel):
+    project_id: int
+    rule_id: int
+    execution_id: Optional[str] = "manual"
+    node_id: Optional[str] = "manual"
+    scope: str = "rule"
+    key: str
+    value: Any
+
+
+class DataReadRequest(BaseModel):
+    project_id: int
+    rule_id: int
+    scope: str = "rule"
+    key: str
+
+
 class ExecutionStep(BaseModel):
     id: int
     execution_id: str
@@ -117,4 +163,3 @@ class Execution(BaseModel):
     variables: dict[str, Any]
     result_summary: Optional[str] = None
     steps: List[ExecutionStep] = []
-

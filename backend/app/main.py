@@ -15,6 +15,11 @@ from .db import get_engine
 from .engine import RuleEngine
 from .logger import configure_logging
 from .models import (
+    Connector,
+    ConnectorCreate,
+    ConnectorUpdate,
+    DataReadRequest,
+    DataWriteRequest,
     Edge,
     GlobalVar,
     GlobalVarUpsert,
@@ -78,6 +83,17 @@ def _to_edge(model) -> Edge:
         source_node=model.source_node,
         target_node=model.target_node,
         condition=model.condition,
+    )
+
+
+def _to_connector(model) -> Connector:
+    return Connector(
+        id=model.id,
+        project_id=model.project_id,
+        name=model.name,
+        type=model.type,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
     )
 
 
@@ -394,6 +410,30 @@ async def test_node(payload: dict[str, Any]):
             "content": f"{key}={value}",
             "output": {"key": key, "value": value},
         }
+    if action_type == "load":
+        key = TemplateRenderer.render(str(config.get("key", "")), variables)
+        assign_to = str(config.get("assign_to", "value"))
+        return {
+            "status": "completed",
+            "action_type": action_type,
+            "content": f"load {key} -> {assign_to}",
+            "output": {"scope": config.get("scope", "rule"), "key": key, "assign_to": assign_to},
+        }
+    if action_type == "python":
+        return {
+            "status": "completed",
+            "action_type": action_type,
+            "content": "python script test is available in full execution",
+            "output": "queued",
+        }
+    if action_type == "shell":
+        command = TemplateRenderer.render(str(config.get("command", "")), variables)
+        return {
+            "status": "completed",
+            "action_type": action_type,
+            "content": command,
+            "output": "queued",
+        }
 
     return {
         "status": "failed",
@@ -407,6 +447,30 @@ async def list_executions(project_id: int, rule_id: int):
     storage = Storage()
     try:
         records = storage.list_executions(project_id, rule_id)
+        return [
+            {
+                "execution_id": r.execution_id,
+                "project_id": r.project_id,
+                "rule_id": r.rule_id,
+                "started_at": r.started_at,
+                "completed_at": r.completed_at,
+                "status": r.status,
+                "variables": json.loads(r.variables or "{}"),
+                "result_summary": r.result_summary,
+            }
+            for r in records
+        ]
+    finally:
+        storage.close()
+
+
+@app.get("/api/projects/{project_id}/executions")
+async def list_project_executions(project_id: int):
+    storage = Storage()
+    try:
+        if not storage.get_project(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        records = storage.list_executions(project_id)
         return [
             {
                 "execution_id": r.execution_id,
@@ -467,6 +531,126 @@ async def get_execution(execution_id: str):
                 }
                 for d in stored
             ],
+        }
+    finally:
+        storage.close()
+
+
+# ===== Connectors =====
+@app.get("/api/projects/{project_id}/connectors", response_model=list[Connector])
+async def list_connectors(project_id: int):
+    storage = Storage()
+    try:
+        if not storage.get_project(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        return [_to_connector(c) for c in storage.list_connectors(project_id)]
+    finally:
+        storage.close()
+
+
+@app.post("/api/projects/{project_id}/connectors", response_model=Connector)
+async def create_connector(project_id: int, req: ConnectorCreate):
+    storage = Storage()
+    try:
+        if not storage.get_project(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        if req.type not in {"mysql", "redis"}:
+            raise HTTPException(status_code=422, detail="connector type must be mysql or redis")
+        created = storage.create_connector(
+            project_id=project_id,
+            name=req.name,
+            connector_type=req.type,
+            config_encrypted=json.dumps(req.config, ensure_ascii=True),
+        )
+        return _to_connector(created)
+    finally:
+        storage.close()
+
+
+@app.put("/api/projects/{project_id}/connectors/{connector_id}", response_model=Connector)
+async def update_connector(project_id: int, connector_id: int, req: ConnectorUpdate):
+    storage = Storage()
+    try:
+        updated = storage.update_connector(
+            project_id=project_id,
+            connector_id=connector_id,
+            name=req.name,
+            config_encrypted=json.dumps(req.config, ensure_ascii=True) if req.config is not None else None,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Connector not found")
+        return _to_connector(updated)
+    finally:
+        storage.close()
+
+
+@app.delete("/api/projects/{project_id}/connectors/{connector_id}")
+async def delete_connector(project_id: int, connector_id: int):
+    storage = Storage()
+    try:
+        ok = storage.delete_connector(project_id, connector_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Connector not found")
+        return {"deleted": True}
+    finally:
+        storage.close()
+
+
+# ===== Data I/O =====
+@app.post("/api/data/write")
+async def write_data(req: DataWriteRequest):
+    storage = Storage()
+    try:
+        if req.scope not in {"project", "rule"}:
+            raise HTTPException(status_code=422, detail="scope must be project or rule")
+        if not storage.get_project(req.project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        record = storage.store_data(
+            project_id=req.project_id,
+            rule_id=req.rule_id,
+            execution_id=req.execution_id or "manual",
+            node_id=req.node_id or "manual",
+            scope=req.scope,
+            key=req.key,
+            value=json.dumps(req.value, ensure_ascii=True) if not isinstance(req.value, str) else req.value,
+        )
+        return {
+            "id": record.id,
+            "project_id": record.project_id,
+            "rule_id": record.rule_id,
+            "execution_id": record.execution_id,
+            "scope": record.scope,
+            "key": record.key,
+        }
+    finally:
+        storage.close()
+
+
+@app.post("/api/data/read")
+async def read_data(req: DataReadRequest):
+    storage = Storage()
+    try:
+        if req.scope not in {"project", "rule"}:
+            raise HTTPException(status_code=422, detail="scope must be project or rule")
+        if not storage.get_project(req.project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        record = storage.read_latest_stored_data(
+            project_id=req.project_id,
+            rule_id=req.rule_id,
+            scope=req.scope,
+            key=req.key,
+        )
+        if not record:
+            return {"found": False, "value": None}
+        return {
+            "found": True,
+            "project_id": record.project_id,
+            "rule_id": record.rule_id,
+            "execution_id": record.execution_id,
+            "scope": record.scope,
+            "key": record.key,
+            "value": record.value,
+            "created_at": record.created_at,
         }
     finally:
         storage.close()
