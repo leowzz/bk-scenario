@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -106,15 +107,20 @@ class RuleEngine:
 
         from sqlalchemy import create_engine, text
 
+        timeout_sec = int(ctx.vars.get("__sql_timeout__", 10))
         dsn = dsn.replace("mysql+aiomysql://", "mysql+pymysql://").replace("aiomysql://", "mysql+pymysql://")
-        db_engine = create_engine(dsn)
+        db_engine = create_engine(dsn, connect_args={"connect_timeout": timeout_sec}, pool_pre_ping=True)
         try:
+            t0 = time.perf_counter()
             with db_engine.connect() as conn:
+                conn.execute(text(f"SET SESSION max_execution_time={timeout_sec * 1000}"))
                 result = conn.execute(text(rendered_sql))
                 if result.returns_rows:
                     rows = [dict(row._mapping) for row in result]
-                    return NodeOutput(node_id=node_id, node_type="sql", status="success", data=rows, metadata={"row_count": len(rows), "rendered_sql": rendered_sql})
-                return NodeOutput(node_id=node_id, node_type="sql", status="success", data=f"Affected rows: {result.rowcount}", metadata={"rendered_sql": rendered_sql})
+                    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                    return NodeOutput(node_id=node_id, node_type="sql", status="success", data=rows, metadata={"row_count": len(rows), "rendered_sql": rendered_sql, "elapsed_ms": elapsed_ms, "timeout_sec": timeout_sec})
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                return NodeOutput(node_id=node_id, node_type="sql", status="success", data=f"Affected rows: {result.rowcount}", metadata={"rendered_sql": rendered_sql, "elapsed_ms": elapsed_ms, "timeout_sec": timeout_sec})
         finally:
             db_engine.dispose()
 

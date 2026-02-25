@@ -38,7 +38,7 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
       <div className="modal-card" onClick={handleContentClick}>
         <div className="modal-header">
           <div className="modal-title">Configure Node</div>
-          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          <div className="modal-header-actions">
             <button
               className="btn-delete-circle"
               onClick={() => onDelete(meta.id)}
@@ -56,7 +56,7 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
           <div className="form-grid">
             <div className="field">
               <label>Node ID</label>
-              <input className="input" value={meta.id} disabled style={{ opacity: 0.7, background: 'var(--bg-app)' }} />
+              <input className="input input-readonly" value={meta.id} disabled />
             </div>
 
             <div className="field">
@@ -338,7 +338,7 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
           )}
 
           {(testError || testResult) && (
-            <div className="mt-4">
+            <div className="node-test-result">
               {testError && <div className="status-error">Test Failed: {testError}</div>}
               {testResult && !testError && (
                 <div className="status-note">
@@ -349,9 +349,16 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                       <strong>Output:</strong>
                       {/* SQL: 渲染后的 SQL */}
                       {testResult.action_type === "sql" && testResult.metadata?.rendered_sql && (
-                        <div style={{ marginBottom: "6px" }}>
-                          <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>rendered SQL</span>
-                          <pre style={{ margin: "2px 0", fontSize: "11px", overflow: "auto", background: "var(--bg-app)", padding: "4px 6px", borderRadius: "4px" }}>
+                        <div className="result-block">
+                          <div className="result-meta-row">
+                            <span className="result-caption">rendered SQL</span>
+                            {testResult.metadata?.elapsed_ms !== undefined && (
+                              <span className="result-caption">
+                                耗时 {testResult.metadata.elapsed_ms} ms · 超时阈值 {testResult.metadata.timeout_sec}s
+                              </span>
+                            )}
+                          </div>
+                          <pre className="result-pre result-pre-muted">
                             {testResult.metadata.rendered_sql}
                           </pre>
                         </div>
@@ -359,14 +366,14 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                       {/* SQL: 表格渲染 */}
                       {testResult.action_type === "sql" && Array.isArray(testResult.output) ? (
                         testResult.output.length === 0 ? (
-                          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>No rows returned</div>
+                          <div className="result-empty">No rows returned</div>
                         ) : (
-                          <div style={{ overflowX: "auto", marginTop: "4px" }}>
-                            <table style={{ fontSize: "11px", borderCollapse: "collapse", width: "100%" }}>
+                          <div className="result-table-wrap">
+                            <table className="result-table">
                               <thead>
                                 <tr>
                                   {Object.keys(testResult.output[0]).map((col) => (
-                                    <th key={col} style={{ padding: "2px 6px", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{col}</th>
+                                    <th key={col}>{col}</th>
                                   ))}
                                 </tr>
                               </thead>
@@ -374,8 +381,8 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                                 {testResult.output.slice(0, 50).map((row, i) => (
                                   <tr key={i}>
                                     {Object.values(row).map((val, j) => (
-                                      <td key={j} style={{ padding: "2px 6px", borderBottom: "1px solid var(--border-subtle)", fontFamily: "monospace" }}>
-                                        {val === null ? <span style={{ opacity: 0.4 }}>null</span> : String(val)}
+                                      <td key={j}>
+                                        {val === null ? <span className="result-null">null</span> : String(val)}
                                       </td>
                                     ))}
                                   </tr>
@@ -383,7 +390,7 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                               </tbody>
                             </table>
                             {testResult.output.length > 50 && (
-                              <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+                              <div className="result-caption">
                                 Showing 50 of {testResult.output.length} rows
                               </div>
                             )}
@@ -391,26 +398,26 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                         )
                       ) : testResult.action_type === "shell" && testResult.output && typeof testResult.output === "object" ? (
                         /* Shell: stdout/stderr 分区渲染 */
-                        <div style={{ marginTop: "4px" }}>
+                        <div className="result-shell-block">
                           {testResult.output.stdout && (
                             <div>
-                              <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>stdout</span>
-                              <pre style={{ margin: "2px 0 6px", fontSize: "11px", overflow: "auto" }}>{testResult.output.stdout}</pre>
+                              <span className="result-caption">stdout</span>
+                              <pre className="result-pre">{testResult.output.stdout}</pre>
                             </div>
                           )}
                           {testResult.output.stderr && (
                             <div>
-                              <span style={{ fontSize: "10px", color: "var(--color-error)" }}>stderr</span>
-                              <pre style={{ margin: "2px 0", fontSize: "11px", overflow: "auto", color: "var(--color-error)" }}>{testResult.output.stderr}</pre>
+                              <span className="result-caption result-caption-error">stderr</span>
+                              <pre className="result-pre result-pre-error">{testResult.output.stderr}</pre>
                             </div>
                           )}
-                          <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                          <div className="result-caption">
                             exit code: {testResult.output.returncode}
                           </div>
                         </div>
                       ) : (
                         /* 通用: JSON / 字符串 */
-                        <pre style={{ margin: "4px 0", fontSize: "11px", overflow: "auto" }}>
+                        <pre className="result-pre">
                           {typeof testResult.output === "object"
                             ? JSON.stringify(testResult.output, null, 2)
                             : testResult.output}
@@ -426,15 +433,14 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
 
         {/* store 测试变量输入区 */}
         {onTestStoreChange && (
-          <div className="modal-body" style={{ borderTop: "1px solid var(--border)", paddingTop: "10px" }}>
-            <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "6px" }}>
+          <div className="modal-body modal-subsection">
+            <div className="test-store-title">
               Test Store Variables <span style={{ opacity: 0.6 }}>（用于 {"{{ store.key }}"} 模板渲染）</span>
             </div>
             {Object.entries(testStore).map(([k, v]) => (
-              <div key={k} style={{ display: "flex", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
+              <div key={k} className="test-store-row">
                 <input
-                  className="input"
-                  style={{ width: "40%", fontSize: "12px", padding: "3px 6px" }}
+                  className="input test-store-key"
                   value={k}
                   placeholder="key"
                   onChange={(e) => {
@@ -446,15 +452,13 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                   }}
                 />
                 <input
-                  className="input"
-                  style={{ flex: 1, fontSize: "12px", padding: "3px 6px" }}
+                  className="input test-store-value"
                   value={v}
                   placeholder="value"
                   onChange={(e) => onTestStoreChange({ ...testStore, [k]: e.target.value })}
                 />
                 <button
-                  className="btn"
-                  style={{ padding: "2px 8px", fontSize: "12px" }}
+                  className="btn test-store-remove"
                   onClick={() => {
                     const next = { ...testStore };
                     delete next[k];
@@ -464,8 +468,7 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
               </div>
             ))}
             <button
-              className="btn"
-              style={{ fontSize: "12px", padding: "2px 10px", marginTop: "2px" }}
+              className="btn test-store-add"
               onClick={() => onTestStoreChange({ ...testStore, "": "" })}
             >+ Add</button>
           </div>

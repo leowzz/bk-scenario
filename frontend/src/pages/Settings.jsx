@@ -13,6 +13,8 @@ export default function Settings() {
     const [deletingMap, setDeletingMap] = useState({});
     const [creating, setCreating] = useState(false);
     const [toast, setToast] = useState(null);
+    const [sqlTimeout, setSqlTimeout] = useState(10);
+    const [savingTimeout, setSavingTimeout] = useState(false);
 
     useEffect(() => {
         loadGlobals();
@@ -21,14 +23,18 @@ export default function Settings() {
     async function loadGlobals() {
         try {
             const data = await fetchJson(`${API_BASE}/globals`);
-            setItems(Array.isArray(data) ? data : []);
+            const all = Array.isArray(data) ? data : [];
+            // 过滤掉系统内置 key，不在全局变量列表中显示
+            setItems(all.filter((item) => !item.key.startsWith("__")));
             setDrafts((prev) => {
                 const next = { ...prev };
-                (Array.isArray(data) ? data : []).forEach((item) => {
+                all.forEach((item) => {
                     next[item.key] = item.value || "";
                 });
                 return next;
             });
+            const timeoutItem = all.find((item) => item.key === "__sql_timeout__");
+            if (timeoutItem) setSqlTimeout(Number(timeoutItem.value) || 10);
         } catch (error) {
             showToast("error", error.message || "加载全局变量失败");
         } finally {
@@ -99,6 +105,22 @@ export default function Settings() {
             showToast("error", error.message || "删除失败");
         } finally {
             setDeletingMap((prev) => ({ ...prev, [key]: false }));
+        }
+    }
+
+    async function saveSqlTimeout() {
+        setSavingTimeout(true);
+        try {
+            await fetchJson(`${API_BASE}/globals`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ key: "__sql_timeout__", value: String(sqlTimeout), type: "string" }),
+            });
+            showToast("success", "SQL 超时设置已保存");
+        } catch (error) {
+            showToast("error", error.message || "保存失败");
+        } finally {
+            setSavingTimeout(false);
         }
     }
 
@@ -191,6 +213,39 @@ export default function Settings() {
                                         </button>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                )}\n
+                {/* 执行设置 */}
+                {!loading && (
+                    <div className="card">
+                        <div className="settings-card-head">
+                            <Settings2 size={20} className="text-muted" />
+                            <h3 className="settings-card-title">执行设置</h3>
+                        </div>
+                        <div className="panel settings-panel">
+                            <div className="settings-grid settings-grid-globals">
+                                <div className="field">
+                                    <label>SQL 执行超时（秒）</label>
+                                    <input
+                                        className="input"
+                                        type="number"
+                                        min="1"
+                                        max="300"
+                                        value={sqlTimeout}
+                                        onChange={(e) => setSqlTimeout(Number(e.target.value) || 10)}
+                                    />
+                                </div>
+                                <div className="field settings-action">
+                                    <button className="btn primary" onClick={saveSqlTimeout} disabled={savingTimeout}>
+                                        <Save size={14} />
+                                        {savingTimeout ? "Saving..." : "保存"}
+                                    </button>
+                                </div>
+                            </div>
+                            <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>
+                                默认 10 秒。超时后 SQL 节点报错，防止慢查询阻塞执行流程。
                             </div>
                         </div>
                     </div>
