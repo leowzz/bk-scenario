@@ -225,6 +225,7 @@ class ExecutionStepModel(SQLModel, table=True):
     completed_at: str | None = None
     status: str | None = None
     output: str | None = None
+    step_data: str | None = None
     execution: Optional[ExecutionModel] = Relationship(
         back_populates="steps",
         sa_relationship_kwargs={

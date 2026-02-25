@@ -272,6 +272,20 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                 />
               </div>
               <div className="field">
+                <label>Assign Result To Variable</label>
+                <input
+                  className="input"
+                  placeholder="e.g. my_result (optional)"
+                  value={config.assign_to || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, assign_to: e.target.value },
+                    })
+                  }
+                />
+              </div>
+              <div className="field">
                 <label>Timeout (sec)</label>
                 <input
                   className="input"
@@ -330,14 +344,69 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                 <div className="status-note">
                   <div><strong>Type:</strong> {testResult.action_type}</div>
                   {testResult.content && <div><strong>Content:</strong> {testResult.content}</div>}
-                  {testResult.output && (
+                  {testResult.output !== undefined && testResult.output !== null && (
                     <div className="mt-2">
                       <strong>Output:</strong>
-                      <pre style={{ margin: "4px 0", fontSize: "11px", overflow: "auto" }}>
-                        {typeof testResult.output === "object"
-                          ? JSON.stringify(testResult.output, null, 2)
-                          : testResult.output}
-                      </pre>
+                      {/* SQL: 表格渲染 */}
+                      {testResult.action_type === "sql" && Array.isArray(testResult.output) ? (
+                        testResult.output.length === 0 ? (
+                          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>No rows returned</div>
+                        ) : (
+                          <div style={{ overflowX: "auto", marginTop: "4px" }}>
+                            <table style={{ fontSize: "11px", borderCollapse: "collapse", width: "100%" }}>
+                              <thead>
+                                <tr>
+                                  {Object.keys(testResult.output[0]).map((col) => (
+                                    <th key={col} style={{ padding: "2px 6px", borderBottom: "1px solid var(--border)", textAlign: "left" }}>{col}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {testResult.output.slice(0, 50).map((row, i) => (
+                                  <tr key={i}>
+                                    {Object.values(row).map((val, j) => (
+                                      <td key={j} style={{ padding: "2px 6px", borderBottom: "1px solid var(--border-subtle)", fontFamily: "monospace" }}>
+                                        {val === null ? <span style={{ opacity: 0.4 }}>null</span> : String(val)}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {testResult.output.length > 50 && (
+                              <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+                                Showing 50 of {testResult.output.length} rows
+                              </div>
+                            )}
+                          </div>
+                        )
+                      ) : testResult.action_type === "shell" && testResult.output && typeof testResult.output === "object" ? (
+                        /* Shell: stdout/stderr 分区渲染 */
+                        <div style={{ marginTop: "4px" }}>
+                          {testResult.output.stdout && (
+                            <div>
+                              <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>stdout</span>
+                              <pre style={{ margin: "2px 0 6px", fontSize: "11px", overflow: "auto" }}>{testResult.output.stdout}</pre>
+                            </div>
+                          )}
+                          {testResult.output.stderr && (
+                            <div>
+                              <span style={{ fontSize: "10px", color: "var(--color-error)" }}>stderr</span>
+                              <pre style={{ margin: "2px 0", fontSize: "11px", overflow: "auto", color: "var(--color-error)" }}>{testResult.output.stderr}</pre>
+                            </div>
+                          )}
+                          <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                            exit code: {testResult.output.returncode}
+                          </div>
+                        </div>
+                      ) : (
+                        /* 通用: JSON / 字符串 */
+                        <pre style={{ margin: "4px 0", fontSize: "11px", overflow: "auto" }}>
+                          {typeof testResult.output === "object"
+                            ? JSON.stringify(testResult.output, null, 2)
+                            : testResult.output}
+                        </pre>
+                      )}
                     </div>
                   )}
                 </div>

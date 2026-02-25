@@ -63,8 +63,9 @@ class RuleEngine:
                 ctx.set_output(output)
                 step_status = "completed" if output.status == "success" else output.status
                 content = output.error or str(output.data or "")
+                step_data_json = json.dumps(output.model_dump(), default=str, ensure_ascii=False)
                 step = self.storage.add_step(execution.execution_id, node_id, action_type, content[:500])
-                self.storage.complete_step(step.id, step_status, json.dumps(output.model_dump(), default=str, ensure_ascii=False))
+                self.storage.complete_step(step.id, step_status, content[:500], step_data=step_data_json)
 
                 if output.status == "error":
                     raise RuntimeError(output.error)

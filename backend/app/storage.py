@@ -296,13 +296,14 @@ class Storage:
         self.session.refresh(step)
         return step
 
-    def complete_step(self, step_id: int, status: str, output: str | None):
+    def complete_step(self, step_id: int, status: str, output: str | None, step_data: str | None = None):
         step = self.session.get(ExecutionStepModel, step_id)
         if not step:
             return
         step.completed_at = _now_iso()
         step.status = status
         step.output = output
+        step.step_data = step_data
         self.session.commit()
 
     def list_steps(self, execution_id: str) -> list[ExecutionStepModel]:

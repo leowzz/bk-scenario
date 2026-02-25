@@ -385,60 +385,63 @@ async def test_node(payload: dict[str, Any]):
     if not isinstance(config, dict):
         raise HTTPException(status_code=422, detail="node.config must be object")
 
-    if action_type == "sql":
-        rendered = TemplateRenderer.render_sql(str(config.get("sql", "")), variables)
-        return {
-            "status": "completed",
-            "action_type": action_type,
-            "content": rendered,
-            "output": rendered,
-        }
-    if action_type == "log":
-        rendered = TemplateRenderer.render(str(config.get("log_message", "")), variables)
-        return {
-            "status": "completed",
-            "action_type": action_type,
-            "content": rendered,
-            "output": rendered,
-        }
-    if action_type == "store":
-        key = TemplateRenderer.render(str(config.get("store_key", "")), variables)
-        value = TemplateRenderer.render(str(config.get("store_value", "")), variables)
-        return {
-            "status": "completed",
-            "action_type": action_type,
-            "content": f"{key}={value}",
-            "output": {"key": key, "value": value},
-        }
-    if action_type == "load":
-        key = TemplateRenderer.render(str(config.get("key", "")), variables)
-        assign_to = str(config.get("assign_to", "value"))
-        return {
-            "status": "completed",
-            "action_type": action_type,
-            "content": f"load {key} -> {assign_to}",
-            "output": {"scope": config.get("scope", "rule"), "key": key, "assign_to": assign_to},
-        }
-    if action_type == "python":
-        return {
-            "status": "completed",
-            "action_type": action_type,
-            "content": "python script test is available in full execution",
-            "output": "queued",
-        }
-    if action_type == "shell":
-        command = TemplateRenderer.render(str(config.get("command", "")), variables)
-        return {
-            "status": "completed",
-            "action_type": action_type,
-            "content": command,
-            "output": "queued",
-        }
+    from .engine import RuleEngine
+    from .models import ExecutionContext, NodeOutput
+
+    storage = Storage()
+    try:
+        project_id = payload.get("project_id")
+        if project_id is None:
+            project_id = _get_default_project_id(storage)
+
+        node_id = node.get("id", "test-node")
+        ctx = ExecutionContext(
+            project_id=project_id,
+            rule_id=0,
+            execution_id="test",
+            vars=dict(variables),
+        )
+        engine = RuleEngine(storage)
+        try:
+            if action_type == "sql":
+                output = engine._execute_sql_node(project_id, node_id, config, ctx)
+            elif action_type == "log":
+                output = engine._execute_log_node(node_id, config, ctx)
+            elif action_type == "store":
+                key = TemplateRenderer.render(str(config.get("store_key", "")), ctx.to_template_vars())
+                value = TemplateRenderer.render(str(config.get("store_value", "")), ctx.to_template_vars())
+                output = NodeOutput(node_id=node_id, node_type="store", status="success", data={"key": key, "value": value})
+            elif action_type == "load":
+                key = TemplateRenderer.render(str(config.get("key", "")), ctx.to_template_vars())
+                assign_to = str(config.get("assign_to", "value"))
+                output = NodeOutput(node_id=node_id, node_type="load", status="success", data={"scope": config.get("scope", "rule"), "key": key, "assign_to": assign_to})
+            elif action_type == "python":
+                output = engine._execute_python_node(node_id, config, ctx)
+            elif action_type == "shell":
+                output = engine._execute_shell_node(node_id, config, ctx)
+            else:
+                output = NodeOutput(node_id=node_id, node_type=str(action_type), status="error", error=f"unsupported node type: {action_type}")
+        except Exception as exc:
+            output = NodeOutput(node_id=node_id, node_type=str(action_type), status="error", error=str(exc))
+    finally:
+        storage.close()
 
     return {
-        "status": "failed",
-        "action_type": str(action_type),
-        "error": f"unsupported node type: {action_type}",
+        "status": "completed" if output.status == "success" else output.status,
+        "action_type": action_type,
+        "content": output.error or str(output.data or ""),
+        "output": output.data,
+        "error": output.error,
+        "metadata": output.metadata,
+    }
+
+    return {
+        "status": "completed" if output.status == "success" else output.status,
+        "action_type": action_type,
+        "content": output.error or str(output.data or ""),
+        "output": output.data,
+        "error": output.error,
+        "metadata": output.metadata,
     }
 
 
@@ -515,6 +518,7 @@ async def get_execution(execution_id: str):
                     "content": s.content,
                     "status": s.status,
                     "output": s.output,
+                    "step_data": json.loads(s.step_data) if s.step_data else None,
                     "started_at": s.started_at,
                     "completed_at": s.completed_at,
                 }
