@@ -7,16 +7,20 @@ export const nodeTypes = {
   shell: { label: "SHELL", color: "#EB5757" },
 };
 
+export function getNodeBrief(meta) {
+  if (!meta) return "";
+  if (meta.type === "sql") return meta.config?.sql || "";
+  if (meta.type === "log") return meta.config?.log_message || "";
+  if (meta.type === "store") return meta.config?.store_key || "";
+  if (meta.type === "load") return `${meta.config?.scope || "rule"}:${meta.config?.key || ""}`;
+  if (meta.type === "python") return meta.config?.script || "";
+  if (meta.type === "shell") return meta.config?.command || "";
+  return "";
+}
+
 export function updateNodeLabel(node) {
   const meta = node.data.meta;
   const title = meta.type.toUpperCase();
-  let detail = "";
-  if (meta.type === "sql") detail = meta.config?.sql || "";
-  if (meta.type === "log") detail = meta.config?.log_message || "";
-  if (meta.type === "store") detail = meta.config?.store_key || "";
-  if (meta.type === "load") detail = `${meta.config?.scope || "rule"}:${meta.config?.key || ""}`;
-  if (meta.type === "python") detail = meta.config?.script || "";
-  if (meta.type === "shell") detail = meta.config?.command || "";
-  const clipped = detail ? detail.slice(0, 40) : "";
+  const clipped = getNodeBrief(meta).slice(0, 40);
   return `${title}\n${meta.id}${clipped ? `\n${clipped}` : ""}`;
 }

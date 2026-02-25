@@ -14,6 +14,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, Save, Play, Plus, Trash2, RefreshCw } from "lucide-react";
 
 import { NodeEditor } from "../components/NodeEditor";
+import { RuleNode } from "../components/RuleNode";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { shouldMarkDirtyFromEdgeChanges, shouldMarkDirtyFromNodeChanges, reselectRuleAfterReload } from "../editor/graphState";
 import { nodeTypes, updateNodeLabel } from "../editor/nodeMeta";
@@ -34,16 +35,9 @@ function toFlowNodes(nodes) {
             const meta = { ...node, id: node.id };
             return {
                 id: node.id,
-                type: "default",
+                type: "ruleNode",
                 data: { label: "", meta },
                 position: { x: node.position_x, y: node.position_y },
-                style: {
-                    border: `2px solid ${nodeTypes[node.type]?.color || "#444"}`,
-                    padding: 10,
-                    borderRadius: 10,
-                    fontSize: 12,
-                    whiteSpace: "pre-wrap",
-                },
             };
         })
         .map((node) => ({ ...node, data: { ...node.data, label: updateNodeLabel(node) } }));
@@ -54,7 +48,7 @@ function toFlowEdges(edges) {
         id: `e-${edge.source_node}-${edge.target_node}`,
         source: edge.source_node,
         target: edge.target_node,
-        type: "smoothstep",
+        type: "bezier",
     }));
 }
 
@@ -302,6 +296,7 @@ export default function Editor() {
     const [nodeTestStore, setNodeTestStore] = useState({});
 
     const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId), [nodes, selectedNodeId]);
+    const flowNodeTypes = useMemo(() => ({ ruleNode: RuleNode }), []);
 
     function clearSavedHintSoon() {
         setGraphSavedHint(true);
@@ -537,6 +532,7 @@ export default function Editor() {
         setNodes((prev) => {
             const nextNode = {
                 id,
+                type: "ruleNode",
                 position: positionMap[type],
                 data: { label: "", meta: { id, type, config: configMap[type] } },
             };
@@ -605,10 +601,11 @@ export default function Editor() {
                         <ReactFlow
                             nodes={nodes}
                             edges={edges}
+                            nodeTypes={flowNodeTypes}
                             onNodesChange={handleNodesChange}
                             onEdgesChange={handleEdgesChange}
                             onConnect={(conn) => {
-                                setEdges((eds) => addEdge({ ...conn, type: "smoothstep" }, eds));
+                                setEdges((eds) => addEdge({ ...conn, type: "bezier" }, eds));
                                 setIsGraphDirty(true);
                                 setGraphSaveError("");
                                 setGraphSavedHint(false);
@@ -640,10 +637,6 @@ export default function Editor() {
                                         data: {
                                             ...node.data,
                                             meta,
-                                        },
-                                        style: {
-                                            ...node.style,
-                                            border: `2px solid ${nodeTypes[meta.type]?.color || "#444"}`,
                                         },
                                     };
                                     return { ...nextNode, data: { ...nextNode.data, label: updateNodeLabel(nextNode) } };
