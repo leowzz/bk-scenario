@@ -1,5 +1,6 @@
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -11,6 +12,39 @@ class NodeType(str, Enum):
     LOAD = "load"
     PYTHON = "python"
     SHELL = "shell"
+
+
+class NodeOutput(BaseModel):
+    node_id: str
+    node_type: str
+    status: Literal["success", "error", "skipped"]
+    data: Any = None
+    error: Optional[str] = None
+    metadata: dict = {}
+
+
+@dataclass
+class ExecutionContext:
+    project_id: int
+    rule_id: int
+    execution_id: str
+    vars: dict[str, Any]
+    store: dict[str, Any] = field(default_factory=dict)
+    node_outputs: dict[str, NodeOutput] = field(default_factory=dict)
+
+    def set_output(self, output: NodeOutput):
+        self.node_outputs[output.node_id] = output
+
+    def to_template_vars(self) -> dict:
+        return {
+            **self.vars,
+            "store": self.store,
+            "nodes": {
+                nid: out.data
+                for nid, out in self.node_outputs.items()
+                if out.status == "success"
+            },
+        }
 
 
 class NodeConfig(BaseModel):

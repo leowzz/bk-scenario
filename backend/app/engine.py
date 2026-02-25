@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .models import ExecutionContext, NodeOutput
 from .template import TemplateRenderer
 from .storage import Storage
 
@@ -25,6 +26,13 @@ class RuleEngine:
                 self.storage.complete_execution(execution.execution_id, "failed", "规则没有节点")
                 return {"execution_id": execution.execution_id, "status": "failed"}
 
+            ctx = ExecutionContext(
+                project_id=project_id,
+                rule_id=rule_id,
+                execution_id=execution.execution_id,
+                vars=runtime_vars,
+            )
+
             node_map = {n.node_id: n for n in nodes}
             order = self._topological_sort(nodes, edges)
 
@@ -32,57 +40,34 @@ class RuleEngine:
                 node = node_map[node_id]
                 config = json.loads(node.config or "{}")
                 action_type = node.type
+                template_vars = ctx.to_template_vars()
 
-                if action_type == "sql":
-                    content = self._execute_sql_node(project_id, config, runtime_vars)
-                    step = self.storage.add_step(execution.execution_id, node_id, action_type, content)
-                    self.storage.complete_step(step.id, "completed", content)
-                elif action_type == "log":
-                    content = TemplateRenderer.render(config.get("log_message", ""), runtime_vars)
-                    step = self.storage.add_step(execution.execution_id, node_id, action_type, content)
-                    self.storage.complete_step(step.id, "completed", content)
-                elif action_type == "store":
-                    scope = config.get("scope", "rule")
-                    if scope not in {"project", "rule"}:
-                        raise ValueError(f"invalid store scope: {scope}")
-                    key = TemplateRenderer.render(config.get("store_key", ""), runtime_vars)
-                    value = TemplateRenderer.render(config.get("store_value", ""), runtime_vars)
-                    step = self.storage.add_step(execution.execution_id, node_id, action_type, f"{key}={value}")
-                    self.storage.store_data(
-                        project_id=project_id,
-                        rule_id=rule_id,
-                        execution_id=execution.execution_id,
-                        node_id=node_id,
-                        scope=scope,
-                        key=key,
-                        value=value,
-                    )
-                    self.storage.complete_step(step.id, "completed", "stored")
-                elif action_type == "load":
-                    scope = config.get("scope", "rule")
-                    if scope not in {"project", "rule"}:
-                        raise ValueError(f"invalid load scope: {scope}")
-                    key = TemplateRenderer.render(config.get("key", ""), runtime_vars)
-                    assign_to = config.get("assign_to")
-                    if not assign_to:
-                        raise ValueError("load.assign_to is required")
-                    data = self.storage.read_latest_stored_data(project_id, rule_id, scope, key)
-                    loaded_value = data.value if data else None
-                    runtime_vars[assign_to] = loaded_value
-                    content = f"{assign_to}={loaded_value}"
-                    step = self.storage.add_step(execution.execution_id, node_id, action_type, content)
-                    self.storage.complete_step(step.id, "completed", content)
-                elif action_type == "python":
-                    content = self._execute_python_node(config, runtime_vars)
-                    step = self.storage.add_step(execution.execution_id, node_id, action_type, "python script")
-                    self.storage.complete_step(step.id, "completed", content)
-                elif action_type == "shell":
-                    content = self._execute_shell_node(config, runtime_vars)
-                    step = self.storage.add_step(execution.execution_id, node_id, action_type, config.get("command", ""))
-                    self.storage.complete_step(step.id, "completed", content)
-                else:
-                    step = self.storage.add_step(execution.execution_id, node_id, action_type, "")
-                    self.storage.complete_step(step.id, "skipped", "unknown action")
+                try:
+                    if action_type == "sql":
+                        output = self._execute_sql_node(project_id, node_id, config, ctx)
+                    elif action_type == "log":
+                        output = self._execute_log_node(node_id, config, ctx)
+                    elif action_type == "store":
+                        output = self._execute_store_node(project_id, rule_id, node_id, config, ctx)
+                    elif action_type == "load":
+                        output = self._execute_load_node(project_id, rule_id, node_id, config, ctx)
+                    elif action_type == "python":
+                        output = self._execute_python_node(node_id, config, ctx)
+                    elif action_type == "shell":
+                        output = self._execute_shell_node(node_id, config, ctx)
+                    else:
+                        output = NodeOutput(node_id=node_id, node_type=action_type, status="skipped")
+                except Exception as node_exc:
+                    output = NodeOutput(node_id=node_id, node_type=action_type, status="error", error=str(node_exc))
+
+                ctx.set_output(output)
+                step_status = "completed" if output.status == "success" else output.status
+                content = output.error or str(output.data or "")
+                step = self.storage.add_step(execution.execution_id, node_id, action_type, content[:500])
+                self.storage.complete_step(step.id, step_status, json.dumps(output.model_dump(), default=str, ensure_ascii=False))
+
+                if output.status == "error":
+                    raise RuntimeError(output.error)
 
             self.storage.complete_execution(execution.execution_id, "completed", "ok")
             return {"execution_id": execution.execution_id, "status": "completed"}
@@ -96,7 +81,8 @@ class RuleEngine:
         resolved.update(run_variables)
         return resolved
 
-    def _execute_sql_node(self, project_id: int, config: dict[str, Any], variables: dict[str, Any]) -> str:
+    def _execute_sql_node(self, project_id: int, node_id: str, config: dict[str, Any], ctx: ExecutionContext) -> NodeOutput:
+        template_vars = ctx.to_template_vars()
         dsn = None
         connector_name = config.get("connector")
         if connector_name:
@@ -111,11 +97,11 @@ class RuleEngine:
         if not dsn:
             connection_key = config.get("connection_key")
             if connection_key:
-                dsn = variables.get(connection_key)
+                dsn = template_vars.get(connection_key)
 
-        rendered_sql = TemplateRenderer.render_sql(config.get("sql", ""), variables)
+        rendered_sql = TemplateRenderer.render_sql(config.get("sql", ""), template_vars)
         if not dsn:
-            return rendered_sql
+            return NodeOutput(node_id=node_id, node_type="sql", status="success", data=rendered_sql)
 
         from sqlalchemy import create_engine, text
 
@@ -125,28 +111,69 @@ class RuleEngine:
                 result = conn.execute(text(rendered_sql))
                 if result.returns_rows:
                     rows = [dict(row._mapping) for row in result]
-                    return json.dumps(rows, default=str, ensure_ascii=True)
-                return f"Affected rows: {result.rowcount}"
+                    return NodeOutput(node_id=node_id, node_type="sql", status="success", data=rows, metadata={"row_count": len(rows)})
+                return NodeOutput(node_id=node_id, node_type="sql", status="success", data=f"Affected rows: {result.rowcount}")
         finally:
             db_engine.dispose()
 
-    def _execute_python_node(self, config: dict[str, Any], variables: dict[str, Any]) -> str:
+    def _execute_log_node(self, node_id: str, config: dict[str, Any], ctx: ExecutionContext) -> NodeOutput:
+        content = TemplateRenderer.render(config.get("log_message", ""), ctx.to_template_vars())
+        return NodeOutput(node_id=node_id, node_type="log", status="success", data=content)
+
+    def _execute_store_node(self, project_id: int, rule_id: int, node_id: str, config: dict[str, Any], ctx: ExecutionContext) -> NodeOutput:
+        scope = config.get("scope", "rule")
+        if scope not in {"project", "rule"}:
+            raise ValueError(f"invalid store scope: {scope}")
+        template_vars = ctx.to_template_vars()
+        key = TemplateRenderer.render(config.get("store_key", ""), template_vars)
+        value = TemplateRenderer.render(config.get("store_value", ""), template_vars)
+        self.storage.store_data(
+            project_id=project_id,
+            rule_id=rule_id,
+            execution_id=ctx.execution_id,
+            node_id=node_id,
+            scope=scope,
+            key=key,
+            value=value,
+        )
+        ctx.store[key] = value
+        return NodeOutput(node_id=node_id, node_type="store", status="success", data={"key": key, "value": value})
+
+    def _execute_load_node(self, project_id: int, rule_id: int, node_id: str, config: dict[str, Any], ctx: ExecutionContext) -> NodeOutput:
+        scope = config.get("scope", "rule")
+        if scope not in {"project", "rule"}:
+            raise ValueError(f"invalid load scope: {scope}")
+        template_vars = ctx.to_template_vars()
+        key = TemplateRenderer.render(config.get("key", ""), template_vars)
+        assign_to = config.get("assign_to")
+        data = self.storage.read_latest_stored_data(project_id, rule_id, scope, key)
+        loaded_value = data.value if data else None
+        ctx.store[key] = loaded_value
+        if assign_to:
+            ctx.vars[assign_to] = loaded_value
+        return NodeOutput(node_id=node_id, node_type="load", status="success", data={"key": key, "value": loaded_value, "assign_to": assign_to})
+
+    def _execute_python_node(self, node_id: str, config: dict[str, Any], ctx: ExecutionContext) -> NodeOutput:
         script = config.get("script", "")
         timeout_sec = int(config.get("timeout_sec", 10))
-        local_vars = {"vars": dict(variables), "result": None}
+        if timeout_sec <= 0:
+            raise ValueError("python timeout_sec must be positive")
+        local_vars = {"vars": ctx.vars, "store": ctx.store, "nodes": ctx.node_outputs, "result": None}
 
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
             exec(script, {"__builtins__": {"print": print, "len": len, "str": str, "int": int, "float": float, "dict": dict, "list": list}}, local_vars)
-        if timeout_sec <= 0:
-            raise ValueError("python timeout_sec must be positive")
-        output = stdout.getvalue().strip()
-        if local_vars.get("result") is not None:
-            return str(local_vars["result"])
-        return output
 
-    def _execute_shell_node(self, config: dict[str, Any], variables: dict[str, Any]) -> str:
-        command = TemplateRenderer.render(config.get("command", ""), variables)
+        result_value = local_vars.get("result")
+        assign_to = config.get("assign_to")
+        if assign_to and result_value is not None:
+            ctx.vars[assign_to] = result_value
+
+        output_data = result_value if result_value is not None else stdout.getvalue().strip()
+        return NodeOutput(node_id=node_id, node_type="python", status="success", data=output_data)
+
+    def _execute_shell_node(self, node_id: str, config: dict[str, Any], ctx: ExecutionContext) -> NodeOutput:
+        command = TemplateRenderer.render(config.get("command", ""), ctx.to_template_vars())
         timeout_sec = int(config.get("timeout_sec", 10))
         workdir = config.get("workdir")
         cwd = None
@@ -166,9 +193,10 @@ class RuleEngine:
             text=True,
             check=False,
         )
+        data = {"stdout": completed.stdout.strip(), "stderr": completed.stderr.strip(), "returncode": completed.returncode}
         if completed.returncode != 0:
             raise RuntimeError(completed.stderr.strip() or f"shell command failed with exit code {completed.returncode}")
-        return completed.stdout.strip()
+        return NodeOutput(node_id=node_id, node_type="shell", status="success", data=data)
 
     def _topological_sort(self, nodes, edges) -> list[str]:
         node_ids = {n.node_id for n in nodes}
