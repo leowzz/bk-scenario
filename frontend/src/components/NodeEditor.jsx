@@ -3,7 +3,7 @@ import { X, Trash2, Play } from "lucide-react";
 import { nodeTypes } from "../editor/nodeMeta";
 import { API_BASE, fetchJson, getDefaultProjectId } from "../utils/api";
 
-export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onDelete, testStore = {}, onTestStoreChange }) {
+export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onDone, onDelete, testStore = {}, onTestStoreChange }) {
   const [connections, setConnections] = useState([]);
 
   useEffect(() => {
@@ -37,7 +37,9 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card" onClick={handleContentClick}>
         <div className="modal-header">
-          <div className="modal-title">Configure Node</div>
+          <div className="modal-title">
+            Configure Node: {meta.id}
+          </div>
           <div className="modal-header-actions">
             <button
               className="btn-delete-circle"
@@ -54,11 +56,6 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
 
         <div className="modal-body">
           <div className="form-grid">
-            <div className="field">
-              <label>Node ID</label>
-              <input className="input input-readonly" value={meta.id} disabled />
-            </div>
-
             <div className="field">
               <label>Type</label>
               <select
@@ -79,15 +76,9 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                 ))}
               </select>
             </div>
-          </div>
-          <p className="help-text" style={{ marginTop: 4, marginBottom: 8 }}>
-            All text fields support Jinja2 templates, e.g. <code>{`{{ now() }}`}</code>, <code>{`{{ today() }}`}</code>, <code>{`{{ vars.xxx }}`}</code>.
-          </p>
-
-          {(meta.type === "sql" || meta.type === "mysql") && (
-            <>
+            {(meta.type === "sql" || meta.type === "mysql" || meta.type === "redis") && (
               <div className="field">
-                <label>MySQL Connection Alias</label>
+                <label>{meta.type === "redis" ? "Redis Connection Alias" : "MySQL Connection Alias"}</label>
                 <select
                   className="input"
                   value={config.connector || ""}
@@ -98,35 +89,31 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                     })
                   }
                 >
-                  <option value="">-- Select MySQL alias --</option>
+                  <option value="">
+                    {meta.type === "redis" ? "-- Select Redis alias --" : "-- Select MySQL alias --"}
+                  </option>
                   {connections
-                    .filter((conn) => conn.type === "mysql")
+                    .filter((conn) => conn.type === (meta.type === "redis" ? "redis" : "mysql"))
                     .map((conn) => (
-                    <option key={conn.id} value={conn.name}>
-                      {conn.name}
-                    </option>
-                  ))}
+                      <option key={conn.id} value={conn.name}>
+                        {conn.name}
+                      </option>
+                    ))}
                 </select>
-                {connections.filter((conn) => conn.type === "mysql").length === 0 && (
+                {connections.filter((conn) => conn.type === (meta.type === "redis" ? "redis" : "mysql")).length === 0 && (
                   <small className="help-text">
-                    No mysql aliases found. Go to Settings - Connection Management.
+                    No {meta.type === "redis" ? "redis" : "mysql"} aliases found. Go to Settings - Connection Management.
                   </small>
                 )}
               </div>
-              <div className="field">
-                <label>Connection Alias (manual)</label>
-                <input
-                  className="input"
-                  placeholder="mysql_main"
-                  value={config.connector || ""}
-                  onChange={(e) =>
-                    onChange({
-                      ...meta,
-                      config: { ...config, connector: e.target.value },
-                    })
-                  }
-                />
-              </div>
+            )}
+          </div>
+          <p className="help-text" style={{ marginTop: 4, marginBottom: 8 }}>
+            All text fields support Jinja2 templates, e.g. <code>{`{{ now() }}`}</code>, <code>{`{{ today() }}`}</code>, <code>{`{{ vars.xxx }}`}</code>.
+          </p>
+
+          {(meta.type === "sql" || meta.type === "mysql") && (
+            <>
               <div className="field">
                 <label>SQL Template</label>
                 <textarea
@@ -147,33 +134,6 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
 
           {meta.type === "redis" && (
             <>
-              <div className="field">
-                <label>Redis Connection Alias</label>
-                <select
-                  className="input"
-                  value={config.connector || ""}
-                  onChange={(e) =>
-                    onChange({
-                      ...meta,
-                      config: { ...config, connector: e.target.value },
-                    })
-                  }
-                >
-                  <option value="">-- Select Redis alias --</option>
-                  {connections
-                    .filter((conn) => conn.type === "redis")
-                    .map((conn) => (
-                      <option key={conn.id} value={conn.name}>
-                        {conn.name}
-                      </option>
-                    ))}
-                </select>
-                {connections.filter((conn) => conn.type === "redis").length === 0 && (
-                  <small className="help-text">
-                    No redis aliases found. Go to Settings - Connection Management.
-                  </small>
-                )}
-              </div>
               <div className="field">
                 <label>Redis Command</label>
                 <textarea
@@ -415,30 +375,45 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                           </pre>
                         </div>
                       )}
-                      {/* MySQL: 成组 SQL 每条影响行数 */}
+                      {/* MySQL: 按语句顺序展示——每条先展示影响行数，有查询结果则立即展示该条结果表 */}
                       {(testResult.action_type === "sql" || testResult.action_type === "mysql") && testResult.metadata?.statement_results?.length > 0 && (
-                        <div className="result-block">
-                          <span className="result-caption">每条 SQL 影响行数</span>
-                          <div className="result-table-wrap">
-                            <table className="result-table">
-                              <thead>
-                                <tr>
-                                  <th>#</th>
-                                  <th>SQL</th>
-                                  <th>影响行数</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {testResult.metadata.statement_results.map((sr, idx) => (
-                                  <tr key={idx}>
-                                    <td>{sr.index}</td>
-                                    <td><code className="result-pre-inline">{sr.sql}</code></td>
-                                    <td>{sr.rowcount}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                        <div className="result-block statement-results-in-order">
+                          {testResult.metadata.statement_results.map((sr, idx) => (
+                            <div key={idx} className="statement-result-item">
+                              <div className="result-meta-row statement-row">
+                                <span className="result-caption">#{sr.index}</span>
+                                <span className="result-caption">影响行数: {sr.rowcount}</span>
+                              </div>
+                              <pre className="result-pre result-pre-muted result-pre-snippet">{sr.sql}</pre>
+                              {sr.rows && sr.rows.length > 0 && (
+                                <div className="result-table-wrap mt-2">
+                                  <table className="result-table">
+                                    <thead>
+                                      <tr>
+                                        {Object.keys(sr.rows[0]).map((col) => (
+                                          <th key={col}>{col}</th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {sr.rows.slice(0, 50).map((row, i) => (
+                                        <tr key={i}>
+                                          {Object.values(row).map((val, j) => (
+                                            <td key={j}>
+                                              {val === null ? <span className="result-null">null</span> : String(val)}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                  {sr.rows.length > 50 && (
+                                    <div className="result-caption">Showing 50 of {sr.rows.length} rows</div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       )}
                       {/* Redis: 渲染后的命令 */}
@@ -568,7 +543,7 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
             {isTesting ? <span className="spinner-sm"></span> : <Play size={14} />}
             {isTesting ? " Testing..." : " Test Node"}
           </button>
-          <button className="btn primary" onClick={onClose}>
+          <button className="btn primary" onClick={onDone || onClose}>
             Done
           </button>
         </div>

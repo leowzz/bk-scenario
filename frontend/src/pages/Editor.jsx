@@ -199,22 +199,43 @@ function ExecutionPanel({ ruleId, refreshToken, autoOpenExecutionId }) {
                                 </div>
                                 <div className="exec-step-body">{step.content}</div>
                                 {(step.action_type === "sql" || step.action_type === "mysql") && step.step_data?.metadata?.statement_results?.length > 0 && (
-                                    <div className="exec-step-statement-results">
-                                        <span className="result-caption">每条 SQL 影响行数</span>
-                                        <table className="result-table">
-                                            <thead>
-                                                <tr><th>#</th><th>SQL</th><th>影响行数</th></tr>
-                                            </thead>
-                                            <tbody>
-                                                {step.step_data.metadata.statement_results.map((sr, idx) => (
-                                                    <tr key={idx}>
-                                                        <td>{sr.index}</td>
-                                                        <td><code className="result-pre-inline">{sr.sql}</code></td>
-                                                        <td>{sr.rowcount}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                    <div className="exec-step-statement-results statement-results-in-order">
+                                        {step.step_data.metadata.statement_results.map((sr, idx) => (
+                                            <div key={idx} className="statement-result-item">
+                                                <div className="result-meta-row statement-row">
+                                                    <span className="result-caption">#{sr.index}</span>
+                                                    <span className="result-caption">影响行数: {sr.rowcount}</span>
+                                                </div>
+                                                <pre className="result-pre result-pre-muted result-pre-snippet">{sr.sql}</pre>
+                                                {sr.rows && sr.rows.length > 0 && (
+                                                    <div className="result-table-wrap mt-2">
+                                                        <table className="result-table">
+                                                            <thead>
+                                                                <tr>
+                                                                    {Object.keys(sr.rows[0]).map((col) => (
+                                                                        <th key={col}>{col}</th>
+                                                                    ))}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {sr.rows.slice(0, 50).map((row, i) => (
+                                                                    <tr key={i}>
+                                                                        {Object.values(row).map((val, j) => (
+                                                                            <td key={j}>
+                                                                                {val === null ? <span className="result-null">null</span> : String(val)}
+                                                                            </td>
+                                                                        ))}
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                        {sr.rows.length > 50 && (
+                                                            <div className="result-caption">Showing 50 of {sr.rows.length} rows</div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                                 {step.output && <div className="exec-step-output">{step.output}</div>}
@@ -650,7 +671,8 @@ export default function Editor() {
                         nodeTestState={nodeTestState}
                         testStore={nodeTestStore}
                         onTestStoreChange={setNodeTestStore}
-                        onClose={handleNodeDone}
+                        onClose={() => setSelectedStepId(null)}
+                        onDone={handleNodeDone}
                         onDelete={deleteStep}
                     />
                 )}

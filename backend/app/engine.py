@@ -138,8 +138,6 @@ class RuleEngine:
                 )
 
             statement_results: list[dict[str, Any]] = []
-            last_rows: list[dict[str, Any]] | None = None
-            last_result_index: int | None = None
 
             with db_engine.connect() as conn:
                 conn.execute(text(f"SET SESSION max_execution_time={timeout_sec * 1000}"))
@@ -149,56 +147,33 @@ class RuleEngine:
                     if result.returns_rows:
                         rows = [dict(row._mapping) for row in result]
                         rowcount = len(rows)
-                        last_rows = rows
-                        last_result_index = i + 1
-                        statement_results.append({"index": i + 1, "sql": snippet, "rowcount": rowcount, "returns_rows": True})
+                        statement_results.append({
+                            "index": i + 1,
+                            "sql": snippet,
+                            "rowcount": rowcount,
+                            "returns_rows": True,
+                            "rows": rows,
+                        })
                     else:
-                        statement_results.append({"index": i + 1, "sql": snippet, "rowcount": result.rowcount, "returns_rows": False})
+                        statement_results.append({
+                            "index": i + 1,
+                            "sql": snippet,
+                            "rowcount": result.rowcount,
+                            "returns_rows": False,
+                        })
                 conn.commit()
 
             elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
-            if len(statements) == 1 and last_rows is not None:
-                data: Any = last_rows
-                metadata = {
-                    "row_count": len(last_rows),
-                    "rendered_sql": rendered_sql,
-                    "elapsed_ms": elapsed_ms,
-                    "timeout_sec": timeout_sec,
-                    "statement_results": statement_results,
-                }
-            elif len(statements) == 1 and statement_results:
-                sr = statement_results[0]
-                data = f"Affected rows: {sr['rowcount']}"
-                metadata = {
-                    "rendered_sql": rendered_sql,
-                    "elapsed_ms": elapsed_ms,
-                    "timeout_sec": timeout_sec,
-                    "statement_results": statement_results,
-                }
-            else:
-                if last_rows is not None:
-                    # 多条 SQL 中至少有一条返回结果集：output 用最后一条返回结果的 rows，metadata 中同时附带每条语句统计信息。
-                    data = last_rows
-                    metadata = {
-                        "row_count": len(last_rows),
-                        "last_result_index": last_result_index,
-                        "rendered_sql": rendered_sql,
-                        "elapsed_ms": elapsed_ms,
-                        "timeout_sec": timeout_sec,
-                        "statement_count": len(statements),
-                        "statement_results": statement_results,
-                    }
-                else:
-                    # 纯 DML：output 仍为每条语句的汇总信息。
-                    data = statement_results
-                    metadata = {
-                        "rendered_sql": rendered_sql,
-                        "elapsed_ms": elapsed_ms,
-                        "timeout_sec": timeout_sec,
-                        "statement_count": len(statements),
-                        "statement_results": statement_results,
-                    }
+            # 统一用 statement_results 作为 data，每条带可选 rows，前端按顺序「行数 + 若有结果立即展示」
+            data = statement_results
+            metadata = {
+                "rendered_sql": rendered_sql,
+                "elapsed_ms": elapsed_ms,
+                "timeout_sec": timeout_sec,
+                "statement_count": len(statements),
+                "statement_results": statement_results,
+            }
 
             return NodeOutput(node_id=node_id, node_type="mysql", status="success", data=data, metadata=metadata)
         finally:

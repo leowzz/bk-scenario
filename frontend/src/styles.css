@@ -1212,6 +1212,27 @@ a {
   margin-bottom: 8px;
 }
 
+.statement-results-in-order {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.statement-result-item {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.statement-result-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.result-pre-snippet {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
 .result-meta-row {
   display: flex;
   align-items: center;
