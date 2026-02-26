@@ -2,10 +2,10 @@
 
 ## 执行流水线
 
-1. `Loader`: 读取规则图与节点配置。
+1. `Loader`: 读取规则与步骤配置（steps）。
 2. `Resolver`: 解析变量并渲染模板。
-3. `Planner`: 做 DAG 拓扑排序与循环检测。
-4. `Executor`: 逐节点执行动作。
+3. `Planner`: 对 steps 做基础校验（重复 id、非法类型等），不再做 DAG 拓扑排序。
+4. `Executor`: 按 steps 顺序逐步骤执行动作。
 5. `Recorder`: 记录步骤、状态、输出与存储产物。
 
 ## 运行模式

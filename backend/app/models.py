@@ -92,17 +92,8 @@ class Node(BaseModel):
     id: str
     rule_id: int
     type: NodeType
-    position_x: float
-    position_y: float
+    order_index: int
     config: NodeConfig
-
-
-class Edge(BaseModel):
-    id: int
-    rule_id: int
-    source_node: str
-    target_node: str
-    condition: Optional[str] = None
 
 
 class Rule(BaseModel):
@@ -112,8 +103,7 @@ class Rule(BaseModel):
     description: str
     created_at: str
     updated_at: str
-    nodes: List[Node] = []
-    edges: List[Edge] = []
+    steps: List[Node] = []
 
 
 class GlobalVar(BaseModel):

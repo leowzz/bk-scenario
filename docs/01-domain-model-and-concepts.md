@@ -5,7 +5,6 @@
 - `Project`
 - `Rule`
 - `Node`
-- `Edge`
 - `GlobalVar`
 - `Execution`
 - `ExecutionStep`
@@ -15,7 +14,7 @@
 ## 关系
 
 - 一个 `Project` 包含多个 `Rule`。
-- 一个 `Rule` 包含多个 `Node` 与 `Edge`。
+- 一个 `Rule` 包含多个按顺序执行的 `Node`（steps）。
 - 一个 `Project` 拥有项目级 `GlobalVar`。
 - 一个 `Rule` 可拥有规则级 `GlobalVar`（覆盖项目级同名变量）。
 - 每次规则运行生成一个 `Execution`，并包含多条 `ExecutionStep`。
@@ -34,7 +33,7 @@
 
 - 规则、执行、存储数据默认按 `project_id` 过滤。
 - 跨项目读取默认禁止。
-- UI 层必须先选择项目，再展示规则按钮和图编辑器。
+- UI 层必须先选择项目，再展示规则按钮与步骤编辑器。
 
 ## 外部连接模型
 

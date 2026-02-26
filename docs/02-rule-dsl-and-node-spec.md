@@ -1,26 +1,22 @@
 # 规则 DSL 与节点规范
 
-## Rule DSL 基本结构
+## Rule DSL 基本结构（线性步骤）
 
 ```yaml
 rule:
   id: user_cleanup
   project_id: prod_ops
   name: 用户清理
-  entry: node_start
-  nodes:
-    - id: node_start
+  steps:
+    - id: step_log_start
       type: log
       config:
         message: "start {{now}}"
-    - id: node_sql
+    - id: step_sql_update
       type: sql
       config:
         connector: mysql_main
         statement: "update users set status='inactive' where last_login < '{{cutoff}}'"
-  edges:
-    - source: node_start
-      target: node_sql
 ```
 
 ## 节点类型

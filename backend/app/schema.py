@@ -66,13 +66,6 @@ class RuleModel(SQLModel, table=True):
             "cascade": "all, delete-orphan",
         },
     )
-    edges: List["EdgeModel"] = Relationship(
-        back_populates="rule",
-        sa_relationship_kwargs={
-            "primaryjoin": "RuleModel.id == foreign(EdgeModel.rule_id)",
-            "cascade": "all, delete-orphan",
-        },
-    )
     executions: List["ExecutionModel"] = Relationship(
         back_populates="rule",
         sa_relationship_kwargs={
@@ -95,34 +88,13 @@ class NodeModel(SQLModel, table=True):
     rule_id: int = Field(nullable=False)
     node_id: str = Field(nullable=False)
     type: str = Field(nullable=False)
-    position_x: float = Field(nullable=False)
-    position_y: float = Field(nullable=False)
+    order_index: int = Field(nullable=False)
     config: str | None = None
     rule: Optional[RuleModel] = Relationship(
         back_populates="nodes",
         sa_relationship_kwargs={
             "primaryjoin": "foreign(NodeModel.rule_id) == RuleModel.id",
             "foreign_keys": "NodeModel.rule_id",
-        },
-    )
-
-
-class EdgeModel(SQLModel, table=True):
-    __tablename__ = "edges"
-    __table_args__ = (
-        UniqueConstraint("rule_id", "source_node", "target_node", name="uq_edges_rule_src_dst"),
-    )
-
-    id: int | None = Field(default=None, primary_key=True)
-    rule_id: int = Field(nullable=False)
-    source_node: str = Field(nullable=False)
-    target_node: str = Field(nullable=False)
-    condition: str | None = None
-    rule: Optional[RuleModel] = Relationship(
-        back_populates="edges",
-        sa_relationship_kwargs={
-            "primaryjoin": "foreign(EdgeModel.rule_id) == RuleModel.id",
-            "foreign_keys": "EdgeModel.rule_id",
         },
     )
 

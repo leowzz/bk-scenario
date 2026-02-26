@@ -10,7 +10,6 @@ from sqlmodel import select
 from .db import SessionLocal
 from .schema import (
     ConnectorModel,
-    EdgeModel,
     ExecutionModel,
     ExecutionStepModel,
     GlobalVarModel,
@@ -122,31 +121,19 @@ class Storage:
                     rule_id=rule_id,
                     node_id=node["node_id"],
                     type=node["type"],
-                    position_x=node["position_x"],
-                    position_y=node["position_y"],
+                    order_index=node.get("order_index", 0),
                     config=json.dumps(node.get("config", {}), ensure_ascii=True),
                 )
             )
         self.session.commit()
 
-    def replace_edges(self, rule_id: int, edges: list[dict[str, Any]]):
-        self.session.execute(delete(EdgeModel).where(EdgeModel.rule_id == rule_id))
-        for edge in edges:
-            self.session.add(
-                EdgeModel(
-                    rule_id=rule_id,
-                    source_node=edge["source_node"],
-                    target_node=edge["target_node"],
-                    condition=edge.get("condition"),
-                )
-            )
-        self.session.commit()
-
     def list_nodes(self, rule_id: int) -> list[NodeModel]:
-        return list(self.session.exec(select(NodeModel).where(NodeModel.rule_id == rule_id)).all())
-
-    def list_edges(self, rule_id: int) -> list[EdgeModel]:
-        return list(self.session.exec(select(EdgeModel).where(EdgeModel.rule_id == rule_id)).all())
+        statement = (
+            select(NodeModel)
+            .where(NodeModel.rule_id == rule_id)
+            .order_by(NodeModel.order_index, NodeModel.id)
+        )
+        return list(self.session.exec(statement).all())
 
     # ===== Global Vars =====
     def list_globals(self, project_id: int) -> list[GlobalVarModel]:

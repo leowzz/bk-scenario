@@ -22,7 +22,6 @@ class RuleEngine:
         try:
             runtime_vars = self._build_runtime_vars(project_id, variables)
             nodes = self.storage.list_nodes(rule_id)
-            edges = self.storage.list_edges(rule_id)
             if not nodes:
                 self.storage.complete_execution(execution.execution_id, "failed", "规则没有节点")
                 return {"execution_id": execution.execution_id, "status": "failed"}
@@ -34,14 +33,10 @@ class RuleEngine:
                 vars=runtime_vars,
             )
 
-            node_map = {n.node_id: n for n in nodes}
-            order = self._topological_sort(nodes, edges)
-
-            for node_id in order:
-                node = node_map[node_id]
+            for node in nodes:
+                node_id = node.node_id
                 config = json.loads(node.config or "{}")
                 action_type = node.type
-                template_vars = ctx.to_template_vars()
 
                 try:
                     if action_type == "sql":
@@ -206,31 +201,3 @@ class RuleEngine:
             raise RuntimeError(completed.stderr.strip() or f"shell command failed with exit code {completed.returncode}")
         return NodeOutput(node_id=node_id, node_type="shell", status="success", data=data)
 
-    def _topological_sort(self, nodes, edges) -> list[str]:
-        node_ids = {n.node_id for n in nodes}
-        graph = {nid: set() for nid in node_ids}
-        for edge in edges:
-            if edge.target_node in graph and edge.source_node in graph:
-                graph[edge.target_node].add(edge.source_node)
-
-        visited = set()
-        temp = set()
-        result = []
-
-        def dfs(nid: str):
-            if nid in temp:
-                raise ValueError(f"循环依赖: {nid}")
-            if nid in visited:
-                return
-            temp.add(nid)
-            for dep in graph[nid]:
-                dfs(dep)
-            temp.remove(nid)
-            visited.add(nid)
-            result.append(nid)
-
-        for nid in node_ids:
-            if nid not in visited:
-                dfs(nid)
-
-        return result

@@ -20,7 +20,6 @@ from .models import (
     ConnectorUpdate,
     DataReadRequest,
     DataWriteRequest,
-    Edge,
     GlobalVar,
     GlobalVarUpsert,
     Node,
@@ -52,7 +51,7 @@ def _to_project(model) -> Project:
     )
 
 
-def _to_rule(model, nodes=None, edges=None) -> Rule:
+def _to_rule(model, steps=None) -> Rule:
     return Rule(
         id=model.id,
         project_id=model.project_id,
@@ -60,8 +59,7 @@ def _to_rule(model, nodes=None, edges=None) -> Rule:
         description=model.description or "",
         created_at=model.created_at,
         updated_at=model.updated_at,
-        nodes=nodes or [],
-        edges=edges or [],
+        steps=steps or [],
     )
 
 
@@ -70,19 +68,8 @@ def _to_node(model) -> Node:
         id=model.node_id,
         rule_id=model.rule_id,
         type=model.type,
-        position_x=model.position_x,
-        position_y=model.position_y,
+        order_index=model.order_index,
         config=json.loads(model.config or "{}"),
-    )
-
-
-def _to_edge(model) -> Edge:
-    return Edge(
-        id=model.id,
-        rule_id=model.rule_id,
-        source_node=model.source_node,
-        target_node=model.target_node,
-        condition=model.condition,
     )
 
 
@@ -257,9 +244,8 @@ async def get_rule(project_id: int, rule_id: int):
         rule = storage.get_rule(project_id, rule_id)
         if not rule:
             raise HTTPException(status_code=404, detail="Rule not found")
-        nodes = [_to_node(n) for n in storage.list_nodes(rule_id)]
-        edges = [_to_edge(e) for e in storage.list_edges(rule_id)]
-        return _to_rule(rule, nodes=nodes, edges=edges)
+        steps = [_to_node(n) for n in storage.list_nodes(rule_id)]
+        return _to_rule(rule, steps=steps)
     finally:
         storage.close()
 
@@ -288,15 +274,17 @@ async def delete_rule(project_id: int, rule_id: int):
         storage.close()
 
 
-@app.put("/api/projects/{project_id}/rules/{rule_id}/graph")
-async def replace_rule_graph(project_id: int, rule_id: int, payload: dict[str, Any]):
+@app.put("/api/projects/{project_id}/rules/{rule_id}/steps")
+async def replace_rule_steps(project_id: int, rule_id: int, payload: dict[str, Any]):
     storage = Storage()
     try:
         rule = storage.get_rule(project_id, rule_id)
         if not rule:
             raise HTTPException(status_code=404, detail="Rule not found")
-        storage.replace_nodes(rule_id, payload.get("nodes", []))
-        storage.replace_edges(rule_id, payload.get("edges", []))
+        steps = payload.get("steps", [])
+        if not isinstance(steps, list):
+            raise HTTPException(status_code=422, detail="steps must be list")
+        storage.replace_nodes(rule_id, steps)
         return {"updated": True}
     finally:
         storage.close()
@@ -708,9 +696,8 @@ async def compat_get_rule(rule_id: int):
         rule = storage.get_rule(project_id, rule_id)
         if not rule:
             raise HTTPException(status_code=404, detail="Rule not found")
-        nodes = [_to_node(n) for n in storage.list_nodes(rule_id)]
-        edges = [_to_edge(e) for e in storage.list_edges(rule_id)]
-        return _to_rule(rule, nodes=nodes, edges=edges)
+        steps = [_to_node(n) for n in storage.list_nodes(rule_id)]
+        return _to_rule(rule, steps=steps)
     finally:
         storage.close()
 
@@ -741,16 +728,18 @@ async def compat_delete_rule(rule_id: int):
         storage.close()
 
 
-@app.put("/api/rules/{rule_id}/graph")
-async def compat_replace_rule_graph(rule_id: int, payload: dict[str, Any]):
+@app.put("/api/rules/{rule_id}/steps")
+async def compat_replace_rule_steps(rule_id: int, payload: dict[str, Any]):
     storage = Storage()
     try:
         project_id = _get_default_project_id(storage)
         rule = storage.get_rule(project_id, rule_id)
         if not rule:
             raise HTTPException(status_code=404, detail="Rule not found")
-        storage.replace_nodes(rule_id, payload.get("nodes", []))
-        storage.replace_edges(rule_id, payload.get("edges", []))
+        steps = payload.get("steps", [])
+        if not isinstance(steps, list):
+            raise HTTPException(status_code=422, detail="steps must be list")
+        storage.replace_nodes(rule_id, steps)
         return {"updated": True}
     finally:
         storage.close()

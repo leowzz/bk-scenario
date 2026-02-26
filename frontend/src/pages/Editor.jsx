@@ -1,75 +1,18 @@
 import React, { useEffect, useMemo, useState } from "react";
-import ReactFlow, {
-    Background,
-    Controls,
-    MiniMap,
-    addEdge,
-    applyEdgeChanges,
-    applyNodeChanges,
-    useEdgesState,
-    useNodesState,
-} from "reactflow";
-import "reactflow/dist/style.css";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, Save, Play, Plus, Trash2, RefreshCw } from "lucide-react";
 
 import { NodeEditor } from "../components/NodeEditor";
-import { RuleNode } from "../components/RuleNode";
 import { ThemeToggle } from "../components/ThemeToggle";
-import { shouldMarkDirtyFromEdgeChanges, shouldMarkDirtyFromNodeChanges, reselectRuleAfterReload } from "../editor/graphState";
-import { nodeTypes, updateNodeLabel } from "../editor/nodeMeta";
+import { nodeTypes } from "../editor/nodeMeta";
 import { API_BASE, fetchJson } from "../utils/api";
 
 const emptyRule = {
     id: null,
     name: "",
     description: "",
-    nodes: [],
-    edges: [],
+    steps: [],
 };
-
-// --- Helper Functions (Moved from App.jsx) ---
-function toFlowNodes(nodes) {
-    return nodes
-        .map((node) => {
-            const meta = { ...node, id: node.id };
-            return {
-                id: node.id,
-                type: "ruleNode",
-                data: { label: "", meta },
-                position: { x: node.position_x, y: node.position_y },
-            };
-        })
-        .map((node) => ({ ...node, data: { ...node.data, label: updateNodeLabel(node) } }));
-}
-
-function toFlowEdges(edges) {
-    return edges.map((edge) => ({
-        id: `e-${edge.source_node}-${edge.target_node}`,
-        source: edge.source_node,
-        target: edge.target_node,
-        type: "bezier",
-    }));
-}
-
-function fromFlowNodes(nodes, ruleId) {
-    return nodes.map((node) => ({
-        node_id: node.id,
-        rule_id: ruleId,
-        type: node.data.meta.type,
-        position_x: node.position.x,
-        position_y: node.position.y,
-        config: node.data.meta.config || {},
-    }));
-}
-
-function fromFlowEdges(edges, ruleId) {
-    return edges.map((edge) => ({
-        rule_id: ruleId,
-        source_node: edge.source,
-        target_node: edge.target,
-    }));
-}
 
 // --- Inner Components ---
 
@@ -274,14 +217,13 @@ export default function Editor() {
     const [rules, setRules] = useState([]);
     const [currentRule, setCurrentRule] = useState(emptyRule);
     const [globals, setGlobals] = useState([]);
-    const [nodes, setNodes] = useNodesState([]);
-    const [edges, setEdges] = useEdgesState([]);
-    const [selectedNodeId, setSelectedNodeId] = useState(null);
+    const [steps, setSteps] = useState([]);
+    const [selectedStepId, setSelectedStepId] = useState(null);
 
-    const [isGraphDirty, setIsGraphDirty] = useState(false);
-    const [isSavingGraph, setIsSavingGraph] = useState(false);
-    const [graphSaveError, setGraphSaveError] = useState("");
-    const [graphSavedHint, setGraphSavedHint] = useState(false);
+    const [isStepsDirty, setIsStepsDirty] = useState(false);
+    const [isSavingSteps, setIsSavingSteps] = useState(false);
+    const [stepsSaveError, setStepsSaveError] = useState("");
+    const [stepsSavedHint, setStepsSavedHint] = useState(false);
 
     const [isRunning, setIsRunning] = useState(false);
     const [runError, setRunError] = useState("");
@@ -295,12 +237,11 @@ export default function Editor() {
     });
     const [nodeTestStore, setNodeTestStore] = useState({});
 
-    const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId), [nodes, selectedNodeId]);
-    const flowNodeTypes = useMemo(() => ({ ruleNode: RuleNode }), []);
+    const selectedStep = useMemo(() => steps.find((step) => step.id === selectedStepId), [steps, selectedStepId]);
 
     function clearSavedHintSoon() {
-        setGraphSavedHint(true);
-        window.setTimeout(() => setGraphSavedHint(false), 1200);
+        setStepsSavedHint(true);
+        window.setTimeout(() => setStepsSavedHint(false), 1200);
     }
 
     // Load initial data
@@ -320,10 +261,9 @@ export default function Editor() {
         } else {
             // No ID, reset to empty
             setCurrentRule(emptyRule);
-            setNodes([]);
-            setEdges([]);
-            setSelectedNodeId(null);
-            setIsGraphDirty(false);
+            setSteps([]);
+            setSelectedStepId(null);
+            setIsStepsDirty(false);
         }
     }, [ruleId]);
 
@@ -343,12 +283,12 @@ export default function Editor() {
         try {
             const data = await fetchJson(`${API_BASE}/rules/${id}`);
             setCurrentRule(data);
-            setNodes(toFlowNodes(data.nodes));
-            setEdges(toFlowEdges(data.edges));
-            setSelectedNodeId(null);
-            setIsGraphDirty(false);
-            setGraphSaveError("");
-            setGraphSavedHint(false);
+            const nextSteps = Array.isArray(data.steps) ? data.steps : [];
+            setSteps(nextSteps);
+            setSelectedStepId(null);
+            setIsStepsDirty(false);
+            setStepsSaveError("");
+            setStepsSavedHint(false);
             setRunError("");
             setNodeTestState({ isLoading: false, error: "", result: null });
         } catch (e) {
@@ -373,27 +313,32 @@ export default function Editor() {
         navigate(`/editor/${rule.id}`);
     }
 
-    async function saveGraph() {
-        if (!currentRule.id || isSavingGraph || !isGraphDirty) return;
-        setIsSavingGraph(true);
-        setGraphSaveError("");
+    async function saveSteps() {
+        if (!currentRule.id || isSavingSteps || !isStepsDirty) return;
+        setIsSavingSteps(true);
+        setStepsSaveError("");
         try {
-            await fetchJson(`${API_BASE}/rules/${currentRule.id}/graph`, {
+            await fetchJson(`${API_BASE}/rules/${currentRule.id}/steps`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    nodes: fromFlowNodes(nodes, currentRule.id),
-                    edges: fromFlowEdges(edges, currentRule.id),
+                    steps: steps.map((step, index) => ({
+                        node_id: step.id,
+                        rule_id: currentRule.id,
+                        type: step.type,
+                        order_index: index,
+                        config: step.config || {},
+                    })),
                 }),
             });
-            setIsGraphDirty(false);
+            setIsStepsDirty(false);
             clearSavedHintSoon();
             return true;
         } catch (error) {
-            setGraphSaveError(error.message || "Save failed");
+            setStepsSaveError(error.message || "Save failed");
             return false;
         } finally {
-            setIsSavingGraph(false);
+            setIsSavingSteps(false);
         }
     }
 
@@ -401,8 +346,8 @@ export default function Editor() {
         if (!currentRule.id || isRunning) return;
 
         // Auto-save if dirty
-        if (isGraphDirty) {
-            const success = await saveGraph();
+        if (isStepsDirty) {
+            const success = await saveSteps();
             if (!success) {
                 setRunError("Auto-save failed, aborting run");
                 return;
@@ -491,36 +436,10 @@ export default function Editor() {
 
     useEffect(() => {
         setNodeTestState({ isLoading: false, error: "", result: null });
-    }, [selectedNodeId]);
+    }, [selectedStepId]);
 
-    function handleNodesChange(changes) {
-        if (shouldMarkDirtyFromNodeChanges(changes)) {
-            setIsGraphDirty(true);
-            setGraphSaveError("");
-            setGraphSavedHint(false);
-        }
-        setNodes((nds) => applyNodeChanges(changes, nds));
-    }
-
-    function handleEdgesChange(changes) {
-        if (shouldMarkDirtyFromEdgeChanges(changes)) {
-            setIsGraphDirty(true);
-            setGraphSaveError("");
-            setGraphSavedHint(false);
-        }
-        setEdges((eds) => applyEdgeChanges(changes, eds));
-    }
-
-    function addNode(type) {
-        const id = `node_${nodes.length + 1}`;
-        const positionMap = {
-            sql: { x: 100 + nodes.length * 40, y: 100 + nodes.length * 40 },
-            log: { x: 120 + nodes.length * 40, y: 140 + nodes.length * 40 },
-            store: { x: 140 + nodes.length * 40, y: 180 + nodes.length * 40 },
-            load: { x: 160 + nodes.length * 40, y: 220 + nodes.length * 40 },
-            python: { x: 180 + nodes.length * 40, y: 260 + nodes.length * 40 },
-            shell: { x: 200 + nodes.length * 40, y: 300 + nodes.length * 40 },
-        };
+    function addStep(type) {
+        const id = `step_${steps.length + 1}`;
         const configMap = {
             sql: { sql: "" },
             log: { log_message: "" },
@@ -529,37 +448,49 @@ export default function Editor() {
             python: { script: "result = vars.get('value')", timeout_sec: 10 },
             shell: { command: "echo hello", timeout_sec: 10 },
         };
-        setNodes((prev) => {
-            const nextNode = {
-                id,
-                type: "ruleNode",
-                position: positionMap[type],
-                data: { label: "", meta: { id, type, config: configMap[type] } },
-            };
-            return [...prev, { ...nextNode, data: { ...nextNode.data, label: updateNodeLabel(nextNode) } }];
-        });
-        setIsGraphDirty(true);
-        setGraphSaveError("");
-        setGraphSavedHint(false);
+        const nextStep = { id, rule_id: currentRule.id, type, order_index: steps.length, config: configMap[type] };
+        setSteps((prev) => [...prev, nextStep]);
+        setSelectedStepId(id);
+        setIsStepsDirty(true);
+        setStepsSaveError("");
+        setStepsSavedHint(false);
     }
 
     const saveButtonLabel = useMemo(() => {
-        if (isSavingGraph) return "Saving...";
-        if (isGraphDirty) return "Save Graph";
-        if (graphSavedHint) return "Saved";
-        return "Save Graph";
-    }, [isSavingGraph, isGraphDirty, graphSavedHint]);
+        if (isSavingSteps) return "Saving...";
+        if (isStepsDirty) return "Save Steps";
+        if (stepsSavedHint) return "Saved";
+        return "Save Steps";
+    }, [isSavingSteps, isStepsDirty, stepsSavedHint]);
 
-    const saveDisabled = isSavingGraph || !currentRule.id || !isGraphDirty;
+    const saveDisabled = isSavingSteps || !currentRule.id || !isStepsDirty;
 
-    function deleteNode(nodeId) {
-        if (!nodeId) return;
-        setNodes((nds) => nds.filter((n) => n.id !== nodeId));
-        setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
-        setSelectedNodeId(null);
-        setIsGraphDirty(true);
-        setGraphSaveError("");
-        setGraphSavedHint(false);
+    function deleteStep(stepId) {
+        if (!stepId) return;
+        setSteps((prev) => {
+            const filtered = prev.filter((s) => s.id !== stepId);
+            return filtered.map((s, index) => ({ ...s, order_index: index }));
+        });
+        setSelectedStepId(null);
+        setIsStepsDirty(true);
+        setStepsSaveError("");
+        setStepsSavedHint(false);
+    }
+
+    function moveStep(stepId, delta) {
+        setSteps((prev) => {
+            const index = prev.findIndex((s) => s.id === stepId);
+            if (index === -1) return prev;
+            const targetIndex = index + delta;
+            if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+            const next = [...prev];
+            const [item] = next.splice(index, 1);
+            next.splice(targetIndex, 0, item);
+            return next.map((s, idx) => ({ ...s, order_index: idx }));
+        });
+        setIsStepsDirty(true);
+        setStepsSaveError("");
+        setStepsSavedHint(false);
     }
 
     return (
@@ -577,14 +508,14 @@ export default function Editor() {
                 {currentRule.id ? (
                     <>
                         <div className="toolbar">
-                            <button className="btn primary" onClick={() => addNode("sql")}>+ SQL</button>
-                            <button className="btn" onClick={() => addNode("log")}>+ LOG</button>
-                            <button className="btn" onClick={() => addNode("store")}>+ STORE</button>
-                            <button className="btn" onClick={() => addNode("load")}>+ LOAD</button>
-                            <button className="btn" onClick={() => addNode("python")}>+ PYTHON</button>
-                            <button className="btn" onClick={() => addNode("shell")}>+ SHELL</button>
+                            <button className="btn primary" onClick={() => addStep("sql")}>+ SQL</button>
+                            <button className="btn" onClick={() => addStep("log")}>+ LOG</button>
+                            <button className="btn" onClick={() => addStep("store")}>+ STORE</button>
+                            <button className="btn" onClick={() => addStep("load")}>+ LOAD</button>
+                            <button className="btn" onClick={() => addStep("python")}>+ PYTHON</button>
+                            <button className="btn" onClick={() => addStep("shell")}>+ SHELL</button>
                             <div className="divider"></div>
-                            <button className="btn ghost" onClick={saveGraph} disabled={saveDisabled}>
+                            <button className="btn ghost" onClick={saveSteps} disabled={saveDisabled}>
                                 <Save size={16} /> {saveButtonLabel}
                             </button>
                             <button className="btn primary" onClick={runRule} disabled={!currentRule.id || isRunning}>
@@ -592,31 +523,72 @@ export default function Editor() {
                                 {isRunning ? " Running..." : " Run"}
                             </button>
                         </div>
-                        {(graphSaveError || runError) && (
+                        {(stepsSaveError || runError) && (
                             <div className="toolbar-status">
-                                {graphSaveError && <div className="status-error">Save Error: {graphSaveError}</div>}
+                                {stepsSaveError && <div className="status-error">Save Error: {stepsSaveError}</div>}
                                 {runError && <div className="status-error">Run Error: {runError}</div>}
                             </div>
                         )}
-                        <ReactFlow
-                            nodes={nodes}
-                            edges={edges}
-                            nodeTypes={flowNodeTypes}
-                            onNodesChange={handleNodesChange}
-                            onEdgesChange={handleEdgesChange}
-                            onConnect={(conn) => {
-                                setEdges((eds) => addEdge({ ...conn, type: "bezier" }, eds));
-                                setIsGraphDirty(true);
-                                setGraphSaveError("");
-                                setGraphSavedHint(false);
-                            }}
-                            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-                            fitView
-                        >
-                            <Background gap={16} color="#1b1b1d" />
-                            <Controls />
-                            <MiniMap />
-                        </ReactFlow>
+                        <div className="steps-list">
+                            {steps.length === 0 && (
+                                <div className="empty-state-canvas">
+                                    <h3>No steps yet. Add a step to get started.</h3>
+                                </div>
+                            )}
+                            {steps.map((step, index) => {
+                                const typeMeta = nodeTypes[step.type] || { label: step.type.toUpperCase() };
+                                const isActive = step.id === selectedStepId;
+                                return (
+                                    <div
+                                        key={step.id}
+                                        className={`step-item ${isActive ? "active" : ""}`}
+                                        onClick={() => setSelectedStepId(step.id)}
+                                    >
+                                        <div className="step-index">{index + 1}</div>
+                                        <div className="step-main">
+                                            <div className="step-title">
+                                                <span className="step-type-pill">{typeMeta.label}</span>
+                                                <span className="step-id">{step.id}</span>
+                                            </div>
+                                        </div>
+                                        <div className="step-actions">
+                                            <button
+                                                className="btn-icon-sm"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    moveStep(step.id, -1);
+                                                }}
+                                                disabled={index === 0}
+                                                title="Move up"
+                                            >
+                                                ↑
+                                            </button>
+                                            <button
+                                                className="btn-icon-sm"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    moveStep(step.id, 1);
+                                                }}
+                                                disabled={index === steps.length - 1}
+                                                title="Move down"
+                                            >
+                                                ↓
+                                            </button>
+                                            <button
+                                                className="btn-icon-danger"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    deleteStep(step.id);
+                                                }}
+                                                title="Delete step"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </>
                 ) : (
                     <div className="empty-state-canvas">
@@ -624,35 +596,28 @@ export default function Editor() {
                     </div>
                 )}
 
-                {selectedNode && (
+                {selectedStep && (
                     <NodeEditor
-                        node={selectedNode}
+                        node={{
+                            data: { meta: { id: selectedStep.id, type: selectedStep.type, config: selectedStep.config || {} } },
+                        }}
                         onChange={(meta) => {
-                            if (!selectedNode) return;
-                            setNodes((nds) =>
-                                nds.map((node) => {
-                                    if (node.id !== selectedNode.id) return node;
-                                    const nextNode = {
-                                        ...node,
-                                        data: {
-                                            ...node.data,
-                                            meta,
-                                        },
-                                    };
-                                    return { ...nextNode, data: { ...nextNode.data, label: updateNodeLabel(nextNode) } };
-                                })
+                            setSteps((prev) =>
+                                prev.map((step) =>
+                                    step.id === selectedStep.id ? { ...step, type: meta.type, config: meta.config || {} } : step
+                                )
                             );
-                            setIsGraphDirty(true);
-                            setGraphSaveError("");
-                            setGraphSavedHint(false);
+                            setIsStepsDirty(true);
+                            setStepsSaveError("");
+                            setStepsSavedHint(false);
                             setNodeTestState({ isLoading: false, error: "", result: null });
                         }}
                         onTest={testCurrentNode}
                         nodeTestState={nodeTestState}
                         testStore={nodeTestStore}
                         onTestStoreChange={setNodeTestStore}
-                        onClose={() => setSelectedNodeId(null)}
-                        onDelete={deleteNode}
+                        onClose={() => setSelectedStepId(null)}
+                        onDelete={deleteStep}
                     />
                 )}
             </div>

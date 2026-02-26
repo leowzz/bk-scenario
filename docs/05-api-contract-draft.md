@@ -14,7 +14,7 @@
 - `POST /api/projects/{project_id}/rules`
 - `GET /api/projects/{project_id}/rules/{rule_id}`
 - `PUT /api/projects/{project_id}/rules/{rule_id}`
-- `PUT /api/projects/{project_id}/rules/{rule_id}/graph`
+- `PUT /api/projects/{project_id}/rules/{rule_id}/steps`（更新规则步骤列表，请求体 `{ "steps": [...] }`）
 
 ## 连接器 API
 
