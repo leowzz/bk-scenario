@@ -81,6 +81,21 @@ class RuleEngine:
         resolved.update(run_variables)
         return resolved
 
+    @staticmethod
+    def _split_sql(rendered_sql: str) -> list[str]:
+        """按分号拆成多条 SQL，去掉空段与仅注释的段。不处理字符串/过程体内的分号。"""
+        raw = (rendered_sql or "").strip()
+        if not raw:
+            return []
+        parts = [p.strip() for p in raw.split(";") if p.strip()]
+        statements = []
+        for p in parts:
+            line = p.split("\n")[0].strip()
+            if line.startswith("--") or line.startswith("#") or line.startswith("/*"):
+                continue
+            statements.append(p)
+        return statements
+
     def _execute_sql_node(self, project_id: int, node_id: str, config: dict[str, Any], ctx: ExecutionContext) -> NodeOutput:
         template_vars = ctx.to_template_vars()
         dsn = None
@@ -111,15 +126,81 @@ class RuleEngine:
         db_engine = create_engine(dsn, connect_args={"connect_timeout": timeout_sec}, pool_pre_ping=True)
         try:
             t0 = time.perf_counter()
+            statements = self._split_sql(rendered_sql)
+            if not statements:
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                return NodeOutput(
+                    node_id=node_id,
+                    node_type="mysql",
+                    status="success",
+                    data=[],
+                    metadata={"rendered_sql": rendered_sql, "elapsed_ms": elapsed_ms, "timeout_sec": timeout_sec, "statement_results": []},
+                )
+
+            statement_results: list[dict[str, Any]] = []
+            last_rows: list[dict[str, Any]] | None = None
+            last_result_index: int | None = None
+
             with db_engine.connect() as conn:
                 conn.execute(text(f"SET SESSION max_execution_time={timeout_sec * 1000}"))
-                result = conn.execute(text(rendered_sql))
-                if result.returns_rows:
-                    rows = [dict(row._mapping) for row in result]
-                    elapsed_ms = int((time.perf_counter() - t0) * 1000)
-                    return NodeOutput(node_id=node_id, node_type="mysql", status="success", data=rows, metadata={"row_count": len(rows), "rendered_sql": rendered_sql, "elapsed_ms": elapsed_ms, "timeout_sec": timeout_sec})
-                elapsed_ms = int((time.perf_counter() - t0) * 1000)
-                return NodeOutput(node_id=node_id, node_type="mysql", status="success", data=f"Affected rows: {result.rowcount}", metadata={"rendered_sql": rendered_sql, "elapsed_ms": elapsed_ms, "timeout_sec": timeout_sec})
+                for i, stmt in enumerate(statements):
+                    result = conn.execute(text(stmt))
+                    snippet = (stmt.strip()[:200] + "…") if len(stmt.strip()) > 200 else stmt.strip()
+                    if result.returns_rows:
+                        rows = [dict(row._mapping) for row in result]
+                        rowcount = len(rows)
+                        last_rows = rows
+                        last_result_index = i + 1
+                        statement_results.append({"index": i + 1, "sql": snippet, "rowcount": rowcount, "returns_rows": True})
+                    else:
+                        statement_results.append({"index": i + 1, "sql": snippet, "rowcount": result.rowcount, "returns_rows": False})
+                conn.commit()
+
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+            if len(statements) == 1 and last_rows is not None:
+                data: Any = last_rows
+                metadata = {
+                    "row_count": len(last_rows),
+                    "rendered_sql": rendered_sql,
+                    "elapsed_ms": elapsed_ms,
+                    "timeout_sec": timeout_sec,
+                    "statement_results": statement_results,
+                }
+            elif len(statements) == 1 and statement_results:
+                sr = statement_results[0]
+                data = f"Affected rows: {sr['rowcount']}"
+                metadata = {
+                    "rendered_sql": rendered_sql,
+                    "elapsed_ms": elapsed_ms,
+                    "timeout_sec": timeout_sec,
+                    "statement_results": statement_results,
+                }
+            else:
+                if last_rows is not None:
+                    # 多条 SQL 中至少有一条返回结果集：output 用最后一条返回结果的 rows，metadata 中同时附带每条语句统计信息。
+                    data = last_rows
+                    metadata = {
+                        "row_count": len(last_rows),
+                        "last_result_index": last_result_index,
+                        "rendered_sql": rendered_sql,
+                        "elapsed_ms": elapsed_ms,
+                        "timeout_sec": timeout_sec,
+                        "statement_count": len(statements),
+                        "statement_results": statement_results,
+                    }
+                else:
+                    # 纯 DML：output 仍为每条语句的汇总信息。
+                    data = statement_results
+                    metadata = {
+                        "rendered_sql": rendered_sql,
+                        "elapsed_ms": elapsed_ms,
+                        "timeout_sec": timeout_sec,
+                        "statement_count": len(statements),
+                        "statement_results": statement_results,
+                    }
+
+            return NodeOutput(node_id=node_id, node_type="mysql", status="success", data=data, metadata=metadata)
         finally:
             db_engine.dispose()
 

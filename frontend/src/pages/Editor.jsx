@@ -198,6 +198,25 @@ function ExecutionPanel({ ruleId, refreshToken, autoOpenExecutionId }) {
                                     <span className={`step-status ${step.status}`}>{step.status}</span>
                                 </div>
                                 <div className="exec-step-body">{step.content}</div>
+                                {(step.action_type === "sql" || step.action_type === "mysql") && step.step_data?.metadata?.statement_results?.length > 0 && (
+                                    <div className="exec-step-statement-results">
+                                        <span className="result-caption">每条 SQL 影响行数</span>
+                                        <table className="result-table">
+                                            <thead>
+                                                <tr><th>#</th><th>SQL</th><th>影响行数</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                {step.step_data.metadata.statement_results.map((sr, idx) => (
+                                                    <tr key={idx}>
+                                                        <td>{sr.index}</td>
+                                                        <td><code className="result-pre-inline">{sr.sql}</code></td>
+                                                        <td>{sr.rowcount}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
                                 {step.output && <div className="exec-step-output">{step.output}</div>}
                             </div>
                         ))}
@@ -435,8 +454,22 @@ export default function Editor() {
     }
 
     useEffect(() => {
-        setNodeTestState({ isLoading: false, error: "", result: null });
-    }, [selectedStepId]);
+            setNodeTestState({ isLoading: false, error: "", result: null });
+        }, [selectedStepId]);
+
+    async function handleNodeTest(meta) {
+        await testCurrentNode(meta);
+        if (isStepsDirty) {
+            await saveSteps();
+        }
+    }
+
+    async function handleNodeDone() {
+        if (isStepsDirty) {
+            await saveSteps();
+        }
+        setSelectedStepId(null);
+    }
 
     function addStep(type) {
         const id = `step_${steps.length + 1}`;
@@ -613,11 +646,11 @@ export default function Editor() {
                             setStepsSavedHint(false);
                             setNodeTestState({ isLoading: false, error: "", result: null });
                         }}
-                        onTest={testCurrentNode}
+                        onTest={handleNodeTest}
                         nodeTestState={nodeTestState}
                         testStore={nodeTestStore}
                         onTestStoreChange={setNodeTestStore}
-                        onClose={() => setSelectedStepId(null)}
+                        onClose={handleNodeDone}
                         onDelete={deleteStep}
                     />
                 )}

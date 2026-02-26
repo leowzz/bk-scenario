@@ -393,7 +393,9 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
               {testResult && !testError && (
                 <div className="status-note">
                   <div><strong>Type:</strong> {testResult.action_type}</div>
-                  {testResult.content && <div><strong>Content:</strong> {testResult.content}</div>}
+                  {testResult.content && !["sql", "mysql"].includes(testResult.action_type) && (
+                    <div><strong>Content:</strong> {testResult.content}</div>
+                  )}
                   {testResult.output !== undefined && testResult.output !== null && (
                     <div className="mt-2">
                       <strong>Output:</strong>
@@ -413,6 +415,32 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                           </pre>
                         </div>
                       )}
+                      {/* MySQL: 成组 SQL 每条影响行数 */}
+                      {(testResult.action_type === "sql" || testResult.action_type === "mysql") && testResult.metadata?.statement_results?.length > 0 && (
+                        <div className="result-block">
+                          <span className="result-caption">每条 SQL 影响行数</span>
+                          <div className="result-table-wrap">
+                            <table className="result-table">
+                              <thead>
+                                <tr>
+                                  <th>#</th>
+                                  <th>SQL</th>
+                                  <th>影响行数</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {testResult.metadata.statement_results.map((sr, idx) => (
+                                  <tr key={idx}>
+                                    <td>{sr.index}</td>
+                                    <td><code className="result-pre-inline">{sr.sql}</code></td>
+                                    <td>{sr.rowcount}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                       {/* Redis: 渲染后的命令 */}
                       {testResult.action_type === "redis" && (testResult.rendered ?? testResult.metadata?.command) && (
                         <div className="result-block">
@@ -422,8 +450,8 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                           </pre>
                         </div>
                       )}
-                      {/* MySQL: 表格渲染 */}
-                      {(testResult.action_type === "sql" || testResult.action_type === "mysql") && Array.isArray(testResult.output) ? (
+                      {/* MySQL: 表格渲染（仅当 output 为行数据时，非 statement_results） */}
+                      {(testResult.action_type === "sql" || testResult.action_type === "mysql") && Array.isArray(testResult.output) && (testResult.output.length === 0 || !("index" in (testResult.output[0] || {}))) ? (
                         testResult.output.length === 0 ? (
                           <div className="result-empty">No rows returned</div>
                         ) : (
@@ -475,12 +503,14 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                           </div>
                         </div>
                       ) : (
-                        /* 通用: JSON / 字符串 */
-                        <pre className="result-pre">
-                          {typeof testResult.output === "object"
-                            ? JSON.stringify(testResult.output, null, 2)
-                            : testResult.output}
-                        </pre>
+                        /* 通用: JSON / 字符串（SQL 节点且有 statement_results 时不再重复 JSON） */
+                        (["sql", "mysql"].includes(testResult.action_type) && testResult.metadata?.statement_results?.length > 0) ? null : (
+                          <pre className="result-pre">
+                            {typeof testResult.output === "object"
+                              ? JSON.stringify(testResult.output, null, 2)
+                              : testResult.output}
+                          </pre>
+                        )
                       )}
                     </div>
                   )}
