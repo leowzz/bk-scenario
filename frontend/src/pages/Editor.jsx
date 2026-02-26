@@ -508,7 +508,8 @@ export default function Editor() {
                 {currentRule.id ? (
                     <>
                         <div className="toolbar">
-                            <button className="btn primary" onClick={() => addStep("sql")}>+ SQL</button>
+                            <button className="btn primary" onClick={() => addStep("mysql")}>+ MySQL</button>
+                            <button className="btn" onClick={() => addStep("redis")}>+ Redis</button>
                             <button className="btn" onClick={() => addStep("log")}>+ LOG</button>
                             <button className="btn" onClick={() => addStep("store")}>+ STORE</button>
                             <button className="btn" onClick={() => addStep("load")}>+ LOAD</button>

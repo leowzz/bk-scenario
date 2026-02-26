@@ -80,11 +80,14 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
               </select>
             </div>
           </div>
+          <p className="help-text" style={{ marginTop: 4, marginBottom: 8 }}>
+            All text fields support Jinja2 templates, e.g. <code>{`{{ now() }}`}</code>, <code>{`{{ today() }}`}</code>, <code>{`{{ vars.xxx }}`}</code>.
+          </p>
 
-          {meta.type === "sql" && (
+          {(meta.type === "sql" || meta.type === "mysql") && (
             <>
               <div className="field">
-                <label>Connection Alias</label>
+                <label>MySQL Connection Alias</label>
                 <select
                   className="input"
                   value={config.connector || ""}
@@ -137,6 +140,53 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                     })
                   }
                   placeholder="SELECT * FROM table..."
+                />
+              </div>
+            </>
+          )}
+
+          {meta.type === "redis" && (
+            <>
+              <div className="field">
+                <label>Redis Connection Alias</label>
+                <select
+                  className="input"
+                  value={config.connector || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, connector: e.target.value },
+                    })
+                  }
+                >
+                  <option value="">-- Select Redis alias --</option>
+                  {connections
+                    .filter((conn) => conn.type === "redis")
+                    .map((conn) => (
+                      <option key={conn.id} value={conn.name}>
+                        {conn.name}
+                      </option>
+                    ))}
+                </select>
+                {connections.filter((conn) => conn.type === "redis").length === 0 && (
+                  <small className="help-text">
+                    No redis aliases found. Go to Settings - Connection Management.
+                  </small>
+                )}
+              </div>
+              <div className="field">
+                <label>Redis Command</label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={config.command || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...meta,
+                      config: { ...config, command: e.target.value },
+                    })
+                  }
+                  placeholder="e.g. GET my_key"
                 />
               </div>
             </>
@@ -347,8 +397,8 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                   {testResult.output !== undefined && testResult.output !== null && (
                     <div className="mt-2">
                       <strong>Output:</strong>
-                      {/* SQL: 渲染后的 SQL */}
-                      {testResult.action_type === "sql" && testResult.metadata?.rendered_sql && (
+                      {/* MySQL: 渲染后的 SQL */}
+                      {(testResult.action_type === "sql" || testResult.action_type === "mysql") && (testResult.rendered ?? testResult.metadata?.rendered_sql) && (
                         <div className="result-block">
                           <div className="result-meta-row">
                             <span className="result-caption">rendered SQL</span>
@@ -359,12 +409,21 @@ export function NodeEditor({ node, onChange, onTest, nodeTestState, onClose, onD
                             )}
                           </div>
                           <pre className="result-pre result-pre-muted">
-                            {testResult.metadata.rendered_sql}
+                            {testResult.rendered ?? testResult.metadata?.rendered_sql}
                           </pre>
                         </div>
                       )}
-                      {/* SQL: 表格渲染 */}
-                      {testResult.action_type === "sql" && Array.isArray(testResult.output) ? (
+                      {/* Redis: 渲染后的命令 */}
+                      {testResult.action_type === "redis" && (testResult.rendered ?? testResult.metadata?.command) && (
+                        <div className="result-block">
+                          <span className="result-caption">rendered command</span>
+                          <pre className="result-pre result-pre-muted">
+                            {testResult.rendered ?? testResult.metadata?.command}
+                          </pre>
+                        </div>
+                      )}
+                      {/* MySQL: 表格渲染 */}
+                      {(testResult.action_type === "sql" || testResult.action_type === "mysql") && Array.isArray(testResult.output) ? (
                         testResult.output.length === 0 ? (
                           <div className="result-empty">No rows returned</div>
                         ) : (

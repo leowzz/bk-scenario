@@ -6,7 +6,9 @@ from pydantic import BaseModel
 
 
 class NodeType(str, Enum):
-    SQL = "sql"
+    SQL = "sql"  # 兼容旧数据，不再在 UI 中使用
+    MYSQL = "mysql"
+    REDIS = "redis"
     LOG = "log"
     STORE = "store"
     LOAD = "load"

@@ -31,7 +31,6 @@ from .models import (
     RuleUpdate,
 )
 from .storage import Storage
-from .template import TemplateRenderer
 
 
 app = FastAPI(title="DB Scenario Pro", version="0.2.0")
@@ -398,30 +397,16 @@ async def test_node(payload: dict[str, Any]):
         )
         engine = RuleEngine(storage)
         try:
-            if action_type == "sql":
+            if action_type in {"sql", "mysql"}:
                 output = engine._execute_sql_node(project_id, node_id, config, ctx)
+            elif action_type == "redis":
+                output = engine._execute_redis_node(project_id, node_id, config, ctx)
             elif action_type == "log":
                 output = engine._execute_log_node(node_id, config, ctx)
             elif action_type == "store":
-                scope = config.get("scope", "rule")
-                if scope not in {"project", "rule"}:
-                    scope = "rule"
-                key = TemplateRenderer.render(str(config.get("store_key", "")), ctx.to_template_vars())
-                value = TemplateRenderer.render(str(config.get("store_value", "")), ctx.to_template_vars())
-                record = storage.store_data(
-                    project_id=project_id,
-                    rule_id=0,
-                    execution_id="test",
-                    node_id=node_id,
-                    scope=scope,
-                    key=key,
-                    value=value,
-                )
-                output = NodeOutput(node_id=node_id, node_type="store", status="success", data={"id": record.id, "key": key, "value": value, "scope": scope})
+                output = engine._execute_store_node(project_id, rule_id, node_id, config, ctx)
             elif action_type == "load":
-                key = TemplateRenderer.render(str(config.get("key", "")), ctx.to_template_vars())
-                assign_to = str(config.get("assign_to", "value"))
-                output = NodeOutput(node_id=node_id, node_type="load", status="success", data={"scope": config.get("scope", "rule"), "key": key, "assign_to": assign_to})
+                output = engine._execute_load_node(project_id, rule_id, node_id, config, ctx)
             elif action_type == "python":
                 output = engine._execute_python_node(node_id, config, ctx)
             elif action_type == "shell":
@@ -433,14 +418,11 @@ async def test_node(payload: dict[str, Any]):
     finally:
         storage.close()
 
-    return {
-        "status": "completed" if output.status == "success" else output.status,
-        "action_type": action_type,
-        "content": output.error or str(output.data or ""),
-        "output": output.data,
-        "error": output.error,
-        "metadata": output.metadata,
-    }
+    rendered = None
+    if action_type == "redis" and output.metadata:
+        rendered = output.metadata.get("command")
+    elif action_type in {"sql", "mysql"} and output.metadata:
+        rendered = output.metadata.get("rendered_sql")
 
     return {
         "status": "completed" if output.status == "success" else output.status,
@@ -449,6 +431,7 @@ async def test_node(payload: dict[str, Any]):
         "output": output.data,
         "error": output.error,
         "metadata": output.metadata,
+        "rendered": rendered,
     }
 
 
