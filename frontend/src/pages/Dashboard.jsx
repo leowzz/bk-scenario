@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Save, Play, Plus, Trash2, RefreshCw } from "lucide-react";
+import { Save, Play, Plus, Trash2, RefreshCw, Settings, CheckCircle2, AlertCircle } from "lucide-react";
 
 import { NodeEditor } from "../components/NodeEditor";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { nodeTypes } from "../editor/nodeMeta";
-import { API_BASE, fetchJson } from "../utils/api";
+import { API_BASE, fetchJson, getDefaultProjectId } from "../utils/api";
 
 const emptyRule = {
     id: null,
@@ -14,44 +14,18 @@ const emptyRule = {
     steps: [],
 };
 
-// --- Inner Components ---
-
-function Sidebar({ rules, onCreate, onSelect, onReload, selectedId }) {
+function Sidebar({ rules, onCreate, onSelect, onReload, selectedId, onRun, executingRuleId, lastResults }) {
     const [name, setName] = useState("");
     const [desc, setDesc] = useState("");
-    const navigate = useNavigate();
 
     return (
-        <div className="sidebar">
+        <div className="sidebar" style={{ width: "300px" }}>
             <div className="sidebar-header">
-                <Link to="/" className="btn-icon">
-                    <ArrowLeft size={20} />
-                </Link>
-                <div className="sidebar-title" style={{ flex: 1 }}>Rules</div>
+                <div className="logo-title" style={{ fontSize: "18px", flex: 1 }}>Scenario Pro</div>
                 <ThemeToggle className="btn-icon-sm" />
-            </div>
-
-            <div className="sidebar-section">
-                <div className="section-title">
-                    <span>All Rules</span>
-                    <button className="btn-icon-sm" onClick={onReload} title="Refresh">
-                        <RefreshCw size={14} />
-                    </button>
-                </div>
-                <div className="rule-list">
-                    {rules.map((rule) => (
-                        <div
-                            key={rule.id}
-                            className={`rule-item ${selectedId == rule.id ? "active" : ""}`}
-                            onClick={() => onSelect(rule.id)}
-                        >
-                            <div className="rule-name">{rule.name}</div>
-                            {rule.id == selectedId && rule.description && (
-                                <div className="rule-desc">{rule.description}</div>
-                            )}
-                        </div>
-                    ))}
-                </div>
+                <Link to="/settings" className="btn-icon-sm" title="Settings">
+                    <Settings size={16} />
+                </Link>
             </div>
 
             <div className="sidebar-section">
@@ -72,6 +46,61 @@ function Sidebar({ rules, onCreate, onSelect, onReload, selectedId }) {
                     </button>
                 </div>
             </div>
+
+            <div className="sidebar-section" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", paddingBottom: 0, borderBottom: "none" }}>
+                <div className="section-title">
+                    <span>Rules</span>
+                    <button className="btn-icon-sm" onClick={onReload} title="Refresh">
+                        <RefreshCw size={14} />
+                    </button>
+                </div>
+                <div className="rule-list" style={{ flex: 1, maxHeight: "none", paddingBottom: "16px" }}>
+                    {rules.length === 0 ? (
+                        <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>
+                            No rules found.
+                        </div>
+                    ) : (
+                        rules.map((rule) => {
+                            const result = lastResults[rule.id];
+                            const isExecuting = executingRuleId === rule.id;
+                            const isActive = selectedId == rule.id;
+                            return (
+                                <div
+                                    key={rule.id}
+                                    className={`rule-item ${isActive ? "active" : ""}`}
+                                    onClick={() => onSelect(rule.id)}
+                                    style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "12px", border: "1px solid var(--border-muted)", marginBottom: "8px" }}
+                                >
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                                        <div>
+                                            <div className="rule-name" style={{ fontSize: "14px" }}>{rule.name}</div>
+                                            <div className="rule-desc" style={{ whiteSpace: "normal" }}>{rule.description}</div>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "4px" }}>
+                                        <div style={{ fontSize: "11px" }}>
+                                            {result?.status === 'success' && <span style={{ color: "var(--success)" }}>● Success</span>}
+                                            {result?.status === 'failed' && <span style={{ color: "var(--error)" }}>● Failed</span>}
+                                        </div>
+                                        <button
+                                            className="btn primary"
+                                            style={{ padding: "4px 12px", fontSize: "12px" }}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onRun(rule);
+                                            }}
+                                            disabled={isExecuting}
+                                        >
+                                            {isExecuting ? <span className="spinner-sm"></span> : <Play size={12} />}
+                                            {isExecuting ? " Running" : " Run"}
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+            </div>
         </div>
     );
 }
@@ -81,8 +110,7 @@ function GlobalsPanel({ globals, onSave, onDelete }) {
     const [newValue, setNewValue] = useState("");
 
     return (
-        <div className="panel">
-            <div className="panel-title">Global Variables</div>
+        <div className="panel" style={{ border: "none", padding: 0, background: "transparent" }}>
             <div className="globals-list">
                 {globals.map((globalVar) => (
                     <div key={globalVar.key} className="globals-item">
@@ -96,8 +124,8 @@ function GlobalsPanel({ globals, onSave, onDelete }) {
                     </div>
                 ))}
             </div>
-            <div className="field-group">
-                <label>Add Variable</label>
+            <div className="field-group" style={{ marginTop: "16px" }}>
+                <label style={{ fontSize: "12px", fontWeight: 500, color: "var(--text-muted)", marginBottom: "8px", display: "block" }}>Add Variable</label>
                 <div className="input-row">
                     <input className="input" placeholder="key" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
                     <input className="input" placeholder="value" value={newValue} onChange={(e) => setNewValue(e.target.value)} />
@@ -160,10 +188,9 @@ function ExecutionPanel({ ruleId, refreshToken, autoOpenExecutionId }) {
     }, [autoOpenExecutionId]);
 
     return (
-        <div className="panel">
-            <div className="panel-title">Execution History</div>
+        <div className="panel" style={{ border: "none", padding: 0, background: "transparent" }}>
             {errorMessage && <div className="status-error">{errorMessage}</div>}
-            <div className="exec-list">
+            <div className="exec-list" style={{ maxHeight: "250px" }}>
                 {executions.map((execution) => (
                     <div
                         key={execution.execution_id}
@@ -248,9 +275,7 @@ function ExecutionPanel({ ruleId, refreshToken, autoOpenExecutionId }) {
     );
 }
 
-// --- Main Editor Component ---
-
-export default function Editor() {
+export default function Dashboard() {
     const { ruleId } = useParams();
     const navigate = useNavigate();
 
@@ -265,8 +290,8 @@ export default function Editor() {
     const [stepsSaveError, setStepsSaveError] = useState("");
     const [stepsSavedHint, setStepsSavedHint] = useState(false);
 
-    const [isRunning, setIsRunning] = useState(false);
-    const [runError, setRunError] = useState("");
+    const [executingRuleId, setExecutingRuleId] = useState(null);
+    const [lastResults, setLastResults] = useState({});
     const [executionRefreshToken, setExecutionRefreshToken] = useState(0);
     const [autoOpenExecutionId, setAutoOpenExecutionId] = useState(null);
 
@@ -277,6 +302,11 @@ export default function Editor() {
     });
     const [nodeTestStore, setNodeTestStore] = useState({});
 
+    const [toast, setToast] = useState(null);
+
+    // Right panel tabs: "config", "variables", "executions"
+    const [activeTab, setActiveTab] = useState("variables");
+
     const selectedStep = useMemo(() => steps.find((step) => step.id === selectedStepId), [steps, selectedStepId]);
 
     function clearSavedHintSoon() {
@@ -284,7 +314,11 @@ export default function Editor() {
         window.setTimeout(() => setStepsSavedHint(false), 1200);
     }
 
-    // Load initial data
+    function showToast(type, message) {
+        setToast({ type, message });
+        setTimeout(() => setToast(null), 3000);
+    }
+
     useEffect(() => {
         async function bootstrap() {
             await loadRulesList();
@@ -293,29 +327,37 @@ export default function Editor() {
         bootstrap();
     }, []);
 
-    // Handle URL ruleId change
     useEffect(() => {
         if (ruleId) {
-            // If we have a ruleId, load that specific rule
             loadRule(ruleId);
         } else {
-            // No ID, reset to empty
             setCurrentRule(emptyRule);
             setSteps([]);
             setSelectedStepId(null);
             setIsStepsDirty(false);
+            if (activeTab === "config" || activeTab === "executions") {
+                setActiveTab("variables");
+            }
         }
     }, [ruleId]);
 
+    useEffect(() => {
+        if (selectedStepId) {
+            setActiveTab("config");
+            setNodeTestState({ isLoading: false, error: "", result: null });
+        } else if (activeTab === "config") {
+            setActiveTab("variables");
+        }
+    }, [selectedStepId]);
 
     async function loadRulesList() {
         const data = await fetchJson(`${API_BASE}/rules`);
-        setRules(data);
+        setRules(Array.isArray(data) ? data : []);
     }
 
     async function loadGlobals() {
         const data = await fetchJson(`${API_BASE}/globals`);
-        setGlobals(data);
+        setGlobals(Array.isArray(data) ? data : []);
     }
 
     async function loadRule(id) {
@@ -329,17 +371,13 @@ export default function Editor() {
             setIsStepsDirty(false);
             setStepsSaveError("");
             setStepsSavedHint(false);
-            setRunError("");
-            setNodeTestState({ isLoading: false, error: "", result: null });
         } catch (e) {
             console.error("Failed to load rule", e);
-            // If 404, maybe navigate back to editor root?
         }
     }
 
-    // Called when clicking a rule in sidebar
     function handleSelectRule(id) {
-        navigate(`/editor/${id}`);
+        navigate(`/${id}`);
     }
 
     async function createRule(name, description) {
@@ -350,7 +388,7 @@ export default function Editor() {
             body: JSON.stringify({ name, description }),
         });
         await loadRulesList();
-        navigate(`/editor/${rule.id}`);
+        navigate(`/${rule.id}`);
     }
 
     async function saveSteps() {
@@ -382,42 +420,57 @@ export default function Editor() {
         }
     }
 
-    async function runRule() {
-        if (!currentRule.id || isRunning) return;
+    async function runRule(rule) {
+        if (executingRuleId) return;
 
-        // Auto-save if dirty
-        if (isStepsDirty) {
+        // Auto-save if dirty and running current rule
+        if (rule.id === currentRule.id && isStepsDirty) {
             const success = await saveSteps();
             if (!success) {
-                setRunError("Auto-save failed, aborting run");
+                showToast("error", "Auto-save failed, aborting run");
                 return;
             }
         }
 
-        const globalsMap = globals.reduce((acc, item) => {
-            acc[item.key] = item.value;
-            return acc;
-        }, {});
+        setExecutingRuleId(rule.id);
+        setLastResults(prev => {
+            const next = { ...prev };
+            delete next[rule.id];
+            return next;
+        });
 
-        setIsRunning(true);
-        setRunError("");
         try {
+            const globalsMap = globals.reduce((acc, item) => {
+                acc[item.key] = item.value;
+                return acc;
+            }, {});
+
             const result = await fetchJson(`${API_BASE}/execute`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ rule_id: currentRule.id, variables: globalsMap }),
+                body: JSON.stringify({ rule_id: rule.id, variables: globalsMap }),
             });
-            setExecutionRefreshToken((prev) => prev + 1);
-            if (result.execution_id) {
-                setAutoOpenExecutionId(result.execution_id);
+
+            if (rule.id === currentRule.id) {
+                setExecutionRefreshToken((prev) => prev + 1);
+                if (result.execution_id) {
+                    setAutoOpenExecutionId(result.execution_id);
+                    setActiveTab("executions");
+                }
             }
+
             if (result.status === "failed") {
-                setRunError(result.error || "Execution failed");
+                showToast("error", `execution failed: ${result.error || "Unknown error"}`);
+                setLastResults(prev => ({ ...prev, [rule.id]: { status: 'failed', error: result.error } }));
+            } else {
+                showToast("success", "Execution completed");
+                setLastResults(prev => ({ ...prev, [rule.id]: { status: 'success', id: result.execution_id } }));
             }
         } catch (error) {
-            setRunError(error.message || "Execution error");
+            showToast("error", `execution error: ${error.message}`);
+            setLastResults(prev => ({ ...prev, [rule.id]: { status: 'failed', error: error.message } }));
         } finally {
-            setIsRunning(false);
+            setExecutingRuleId(null);
         }
     }
 
@@ -474,22 +527,11 @@ export default function Editor() {
         }
     }
 
-    useEffect(() => {
-            setNodeTestState({ isLoading: false, error: "", result: null });
-        }, [selectedStepId]);
-
     async function handleNodeTest(meta) {
         await testCurrentNode(meta);
         if (isStepsDirty) {
             await saveSteps();
         }
-    }
-
-    async function handleNodeDone() {
-        if (isStepsDirty) {
-            await saveSteps();
-        }
-        setSelectedStepId(null);
     }
 
     function addStep(type) {
@@ -502,7 +544,7 @@ export default function Editor() {
             python: { script: "result = vars.get('value')", timeout_sec: 10 },
             shell: { command: "echo hello", timeout_sec: 10 },
         };
-        const nextStep = { id, rule_id: currentRule.id, type, order_index: steps.length, config: configMap[type] };
+        const nextStep = { id, rule_id: currentRule.id, type, order_index: steps.length, config: configMap[type] || {} };
         setSteps((prev) => [...prev, nextStep]);
         setSelectedStepId(id);
         setIsStepsDirty(true);
@@ -525,7 +567,9 @@ export default function Editor() {
             const filtered = prev.filter((s) => s.id !== stepId);
             return filtered.map((s, index) => ({ ...s, order_index: index }));
         });
-        setSelectedStepId(null);
+        if (selectedStepId === stepId) {
+            setSelectedStepId(null);
+        }
         setIsStepsDirty(true);
         setStepsSaveError("");
         setStepsSavedHint(false);
@@ -548,43 +592,50 @@ export default function Editor() {
     }
 
     return (
-        <div className="app editor-layout">
+        <div className="app editor-layout" style={{ gridTemplateColumns: "300px 1fr 400px" }}>
             <Sidebar
                 rules={rules}
                 onCreate={createRule}
                 onSelect={handleSelectRule}
                 onReload={loadRulesList}
                 selectedId={ruleId}
+                onRun={runRule}
+                executingRuleId={executingRuleId}
+                lastResults={lastResults}
             />
 
-            {/* If no rule selected, show a placeholder or just the canvas blank */}
             <div className="canvas">
                 {currentRule.id ? (
                     <>
-                        <div className="toolbar">
-                            <button className="btn primary" onClick={() => addStep("mysql")}>+ MySQL</button>
+                        <div className="toolbar" style={{ position: "static", borderRadius: 0, borderLeft: "none", borderRight: "none", borderTop: "none", display: "flex", justifyContent: "space-between", padding: "12px 16px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <h2 style={{ margin: 0, fontSize: "16px" }}>{currentRule.name}</h2>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <button className="btn ghost" onClick={saveSteps} disabled={saveDisabled}>
+                                    <Save size={16} /> {saveButtonLabel}
+                                </button>
+                                <button className="btn primary" onClick={() => runRule(currentRule)} disabled={executingRuleId === currentRule.id}>
+                                    {executingRuleId === currentRule.id ? <span className="spinner-sm"></span> : <Play size={16} />}
+                                    {executingRuleId === currentRule.id ? " Running..." : " Run"}
+                                </button>
+                            </div>
+                        </div>
+                        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-muted)", display: "flex", gap: "8px", flexWrap: "wrap", background: "var(--bg-panel)" }}>
+                            <button className="btn" onClick={() => addStep("mysql")}>+ MySQL</button>
                             <button className="btn" onClick={() => addStep("redis")}>+ Redis</button>
                             <button className="btn" onClick={() => addStep("log")}>+ LOG</button>
                             <button className="btn" onClick={() => addStep("store")}>+ STORE</button>
                             <button className="btn" onClick={() => addStep("load")}>+ LOAD</button>
                             <button className="btn" onClick={() => addStep("python")}>+ PYTHON</button>
                             <button className="btn" onClick={() => addStep("shell")}>+ SHELL</button>
-                            <div className="divider"></div>
-                            <button className="btn ghost" onClick={saveSteps} disabled={saveDisabled}>
-                                <Save size={16} /> {saveButtonLabel}
-                            </button>
-                            <button className="btn primary" onClick={runRule} disabled={!currentRule.id || isRunning}>
-                                {isRunning ? <span className="spinner-sm"></span> : <Play size={16} />}
-                                {isRunning ? " Running..." : " Run"}
-                            </button>
                         </div>
-                        {(stepsSaveError || runError) && (
-                            <div className="toolbar-status">
-                                {stepsSaveError && <div className="status-error">Save Error: {stepsSaveError}</div>}
-                                {runError && <div className="status-error">Run Error: {runError}</div>}
+                        {(stepsSaveError) && (
+                            <div style={{ padding: "12px 16px 0" }}>
+                                <div className="status-error" style={{ marginBottom: 0 }}>Save Error: {stepsSaveError}</div>
                             </div>
                         )}
-                        <div className="steps-list">
+                        <div className="steps-list" style={{ marginTop: 0 }}>
                             {steps.length === 0 && (
                                 <div className="empty-state-canvas">
                                     <h3>No steps yet. Add a step to get started.</h3>
@@ -650,42 +701,82 @@ export default function Editor() {
                         <h3>Select or create a rule to start editing</h3>
                     </div>
                 )}
-
-                {selectedStep && (
-                    <NodeEditor
-                        node={{
-                            data: { meta: { id: selectedStep.id, type: selectedStep.type, config: selectedStep.config || {} } },
-                        }}
-                        onChange={(meta) => {
-                            setSteps((prev) =>
-                                prev.map((step) =>
-                                    step.id === selectedStep.id ? { ...step, type: meta.type, config: meta.config || {} } : step
-                                )
-                            );
-                            setIsStepsDirty(true);
-                            setStepsSaveError("");
-                            setStepsSavedHint(false);
-                            setNodeTestState({ isLoading: false, error: "", result: null });
-                        }}
-                        onTest={handleNodeTest}
-                        nodeTestState={nodeTestState}
-                        testStore={nodeTestStore}
-                        onTestStoreChange={setNodeTestStore}
-                        onClose={() => setSelectedStepId(null)}
-                        onDone={handleNodeDone}
-                        onDelete={deleteStep}
-                    />
-                )}
             </div>
 
-            <div className="right-panel">
-                <GlobalsPanel globals={globals} onSave={saveGlobal} onDelete={deleteGlobal} />
-                <ExecutionPanel
-                    ruleId={currentRule.id}
-                    refreshToken={executionRefreshToken}
-                    autoOpenExecutionId={autoOpenExecutionId}
-                />
+            <div className="right-panel" style={{ padding: 0, gap: 0 }}>
+                <div style={{ display: "flex", borderBottom: "1px solid var(--border-muted)", background: "var(--bg-panel)" }}>
+                    <button
+                        style={{ flex: 1, padding: "12px", borderBottom: activeTab === "config" ? "2px solid var(--primary)" : "2px solid transparent", color: activeTab === "config" ? "var(--primary)" : "var(--text-muted)", fontWeight: 500 }}
+                        onClick={() => setActiveTab("config")}
+                    >
+                        Node Config
+                    </button>
+                    <button
+                        style={{ flex: 1, padding: "12px", borderBottom: activeTab === "variables" ? "2px solid var(--primary)" : "2px solid transparent", color: activeTab === "variables" ? "var(--primary)" : "var(--text-muted)", fontWeight: 500 }}
+                        onClick={() => setActiveTab("variables")}
+                    >
+                        Variables
+                    </button>
+                    <button
+                        style={{ flex: 1, padding: "12px", borderBottom: activeTab === "executions" ? "2px solid var(--primary)" : "2px solid transparent", color: activeTab === "executions" ? "var(--primary)" : "var(--text-muted)", fontWeight: 500 }}
+                        onClick={() => setActiveTab("executions")}
+                    >
+                        Executions
+                    </button>
+                </div>
+                <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+                    {activeTab === "config" && (
+                        selectedStep ? (
+                            <div className="panel" style={{ border: "none", padding: 0, background: "transparent" }}>
+                                <div style={{ marginBottom: "16px", paddingBottom: "12px", borderBottom: "1px solid var(--border-muted)" }}>
+                                    <div style={{ fontSize: "14px", fontWeight: 600 }}>Node: {selectedStep.id}</div>
+                                </div>
+                                <NodeEditor
+                                    node={{
+                                        data: { meta: { id: selectedStep.id, type: selectedStep.type, config: selectedStep.config || {} } },
+                                    }}
+                                    onChange={(meta) => {
+                                        setSteps((prev) =>
+                                            prev.map((step) =>
+                                                step.id === selectedStep.id ? { ...step, type: meta.type, config: meta.config || {} } : step
+                                            )
+                                        );
+                                        setIsStepsDirty(true);
+                                        setStepsSaveError("");
+                                        setStepsSavedHint(false);
+                                        setNodeTestState({ isLoading: false, error: "", result: null });
+                                    }}
+                                    onTest={handleNodeTest}
+                                    nodeTestState={nodeTestState}
+                                    testStore={nodeTestStore}
+                                    onTestStoreChange={setNodeTestStore}
+                                />
+                            </div>
+                        ) : (
+                            <div style={{ color: "var(--text-muted)", fontSize: "13px", textAlign: "center", marginTop: "40px" }}>
+                                Select a step to configure
+                            </div>
+                        )
+                    )}
+                    {activeTab === "variables" && (
+                        <GlobalsPanel globals={globals} onSave={saveGlobal} onDelete={deleteGlobal} />
+                    )}
+                    {activeTab === "executions" && (
+                        <ExecutionPanel
+                            ruleId={currentRule.id}
+                            refreshToken={executionRefreshToken}
+                            autoOpenExecutionId={autoOpenExecutionId}
+                        />
+                    )}
+                </div>
             </div>
+
+            {toast && (
+                <div className={`toast toast-${toast.type}`}>
+                    {toast.type === "success" ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                    <span>{toast.message}</span>
+                </div>
+            )}
         </div>
     );
 }
